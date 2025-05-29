@@ -104,15 +104,15 @@ else:
 st.session_state["ds_hocvien"] = ds_hocvien
 
 #Map điểm từ file Excel
-uploaded_file = st.file_uploader("📥 Tải lên file Excel điểm (LMS_RPT_001A.xlsx)", type=["xlsx"])
-if uploaded_file is not None:
-    df_diem = pd.read_excel(uploaded_file, header=0)
-    #st.write("Tên các cột file điểm:", df_diem.columns.tolist())
-    # Lấy cột họ tên và cột G (Lần thi)
-    col_name_hoten = df_diem.columns[3]   # Cột D: Họ và tên
-    col_name_lanthi = df_diem.columns[6]  # Cột G: Lần thi
+# --- Tải file điểm từ LMS ---
+uploaded_lms = st.file_uploader("📥 Tải file điểm dạng lớp học", type=["xlsx"], key="uploader_lms")
+if uploaded_lms is not None:
+    df_diem = pd.read_excel(uploaded_lms)
+    col_name_hoten = df_diem.columns[3]    # Cột D
+    col_name_lanthi = df_diem.columns[6]   # Cột G
 
     def normalize_name(s):
+        import re
         return re.sub(r"\s+", "", str(s).strip().lower())
     df_diem["HoTenChuan"] = df_diem[col_name_hoten].apply(normalize_name)
 
@@ -121,16 +121,51 @@ if uploaded_file is not None:
             return ""
         scores = re.findall(r"Lần \d+\s*:\s*(\d+)", text)
         return "/".join(scores)
-    df_diem["Điểm đã xử lý"] = df_diem[col_name_lanthi].apply(extract_diem_lanthi)
+    df_diem["DiemDaXuLy"] = df_diem[col_name_lanthi].apply(extract_diem_lanthi)
 
-    # Chuẩn hóa họ tên bảng học viên
     ds_hocvien["HoTenChuan"] = ds_hocvien["Họ tên"].apply(normalize_name)
-    diem_map = dict(zip(df_diem["HoTenChuan"], df_diem["Điểm đã xử lý"]))
+    diem_map = dict(zip(df_diem["HoTenChuan"], df_diem["DiemDaXuLy"]))
     ds_hocvien["Điểm"] = ds_hocvien["HoTenChuan"].map(diem_map).fillna(ds_hocvien["Điểm"])
-
-    st.success("Đã tự động cập nhật điểm từ file Excel dựa theo họ tên!")
+    st.success("Đã cập nhật điểm từ file LMS (theo họ tên)!")
     st.dataframe(ds_hocvien[["Mã NV", "Họ tên", "Điểm"]], use_container_width=True)
     st.session_state["ds_hocvien"] = ds_hocvien
+
+# --- Tải file điểm từ đợt thi ---
+uploaded_dotthi = st.file_uploader("📥 Tải file điểm dạng đợt thi", type=["xlsx"], key="uploader_dotthi")
+if uploaded_dotthi is not None:
+    df_dotthi = pd.read_excel(uploaded_dotthi)
+    col_name_hoten = df_dotthi.columns[2]       # Cột C
+    col_name_diem_1lan = df_dotthi.columns[4]   # Cột E
+    col_name_diem_nlan = df_dotthi.columns[6]   # Cột G
+
+    def normalize_name(s):
+        return re.sub(r"\s+", "", str(s).strip().lower())
+
+    def extract_score_dotthi(row):
+        diem_1lan = row[col_name_diem_1lan]
+        diem_nlan = row[col_name_diem_nlan]
+        if pd.notnull(diem_nlan) and str(diem_nlan).strip() != "":
+            # Tách từng điểm Lần 1: 70; Lần 2: 90; ...
+            scores = re.findall(r"Lần\s*\d+\s*:\s*(\d+)", str(diem_nlan))
+            if scores:
+                return "/".join(scores)
+            else:
+                return str(diem_nlan).strip()
+        elif pd.notnull(diem_1lan) and str(diem_1lan).strip() != "":
+            return str(diem_1lan).strip()
+        else:
+            return ""
+
+    df_dotthi["HoTenChuan"] = df_dotthi[col_name_hoten].apply(normalize_name)
+    df_dotthi["DiemDaXuLy"] = df_dotthi.apply(extract_score_dotthi, axis=1)
+    ds_hocvien["HoTenChuan"] = ds_hocvien["Họ tên"].apply(normalize_name)
+    diem_map = dict(zip(df_dotthi["HoTenChuan"], df_dotthi["DiemDaXuLy"]))
+    ds_hocvien["Điểm"] = ds_hocvien["HoTenChuan"].map(diem_map).fillna(ds_hocvien["Điểm"])
+
+    st.success("Đã tự động cập nhật điểm dạng 70/90... từ file đợt thi!")
+    st.dataframe(ds_hocvien[["Mã NV", "Họ tên", "Điểm"]], use_container_width=True)
+    st.session_state["ds_hocvien"] = ds_hocvien
+
 
 
 # --- Thông tin chữ ký báo cáo ---
