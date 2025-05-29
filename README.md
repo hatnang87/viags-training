@@ -20,7 +20,7 @@
 ### **1. Cài Python và các thư viện cần thiết**
 ```sh
 pip install streamlit pandas jinja2 openpyxl xlsxwriter
-2. Chạy ứng dụng
+### **2. Chạy ứng dụng
 streamlit run app.py
-3. Truy cập ứng dụng
+### **3. Truy cập ứng dụng
 Mở trình duyệt tại địa chỉ: http://localhost:8501
