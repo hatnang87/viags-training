@@ -202,7 +202,7 @@ with tab4:
     with open("logo_viags.png", "rb") as image_file:
         logo_base64 = base64.b64encode(image_file.read()).decode()
 
-    col1, col2,_ = st.columns([1,1,6])
+    col1, col2,_ = st.columns([1,1,4])
     with col1:
         bckq = st.button("📄In báo cáo kết quả")
     with col2:
@@ -293,14 +293,11 @@ with tab4:
             # Tính min_height cho bảng (ví dụ mỗi dòng ~10mm, tối thiểu 120mm)
             num_students = len(data_sorted)
             if num_students <= 14:
-                min_height = 130
-            elif num_students <= 17:
-                min_height = 150
+                min_height = 120
             else:
-                min_height = 120  # bảng dài thì không cần min_height lớn
+                min_height = 90  # bảng dài thì không cần min_height lớn
 
            
-
             # Trước khi render template:
             days = extract_days(time)
             for i, student in enumerate(data_sorted):
@@ -351,7 +348,7 @@ with tab4:
                 style="display:inline-block; font-size:18px; padding:6px 18px; margin-right:16px; background:#f0f0f0; border-radius:4px; text-decoration:none; border:1px solid #ccc;">
                 📥 Tải báo cáo Excel
                 </a>
-                <button onclick="window.print()" style="font-size:18px;padding:6px 18px;">🖨️ In báo cáo</button>
+                <button onclick="window.print()" style="font-size:18px;padding:6px 18px;">🖨️ In báo cáo kết quả</button>
             </div>
             {rendered}
 """
@@ -402,12 +399,12 @@ with tab4:
                 num_attended=num_attended,
                 gv_huong_dan=gv_huong_dan,
                 days=days,
-                logo_base64=logo_base64
+                logo_base64=logo_base64,
             )
            # Thêm nút in vào đầu HTML
             attendance_html_with_print = """
             <div style="text-align:right; margin-bottom:12px;" class="no-print">
-                <button onclick="window.print()" style="font-size:18px;padding:6px 18px;">🖨️ In báo cáo điểm danh</button>
+                <button onclick="window.print()" style="font-size:18px;padding:6px 18px;">🖨️ In bảng điểm danh</button>
             </div>
             """ + attendance_html
             st.components.v1.html(attendance_html_with_print, height=1000, scrolling=True)

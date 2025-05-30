@@ -53,7 +53,7 @@
         }
         .info {
             margin: 14px 0;
-            line-height: 1.8;
+            line-height: 1.6;
             font-size: 18px;
         }
         .sign-table td {
@@ -162,6 +162,11 @@
 
 <!-- BẢNG KẾT QUẢ -->
 <table class="result-table" style="width:100%; min-height: {{ min_height }}mm;">
+  <style>
+    th, td {
+      padding: {% if num_students in [15, 16] %}2px 2px{% else %}10px 8px{% endif %};
+    }
+  </style>
   <thead>
     <tr>
       <th style="width:5%;">STT</th>
