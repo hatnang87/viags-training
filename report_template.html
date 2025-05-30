@@ -13,7 +13,7 @@
         }
         body {
             font-family: "Times New Roman", serif;
-            font-size: 16px;
+            font-size: 18px;
             margin: 0;
         }
         table {
@@ -23,7 +23,7 @@
         th, td {
             border: 1px solid black;
             padding: 10px 8px;
-            font-size: 16px;
+            font-size: 18px;
             text-align: center;
         }
         th {
@@ -36,7 +36,7 @@
         }
         .header-label {
             font-style: italic;
-            font-size: 16px;
+            font-size: 18px;
             padding-top: 0;
             padding-bottom: 2px;
             text-align: left;
@@ -54,13 +54,13 @@
         .info {
             margin: 14px 0;
             line-height: 2.1;
-            font-size: 16px;
+            font-size: 18px;
         }
         .sign-table td {
             height: 110px;
             vertical-align: top;
             padding: 8px 12px;
-            font-size: 16px;
+            font-size: 18px;
             border: 1px solid black;
         }
         .sign-label {
@@ -70,6 +70,28 @@
         .signature {
             margin-top: 6px;
         }
+        .footer-signature {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+        .result-table {
+            page-break-inside: auto;
+            border-collapse: collapse;
+            width: 100%;
+        }
+        .result-table tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+        }
+        @media print {
+            button, .stApp, .st-emotion-cache-1kyxreq, .st-emotion-cache-1avcm0n { display: none !important; }
+            body { margin: 0; }
+            html, body { width: 210mm; height: 297mm; }
+            .footer-signature {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+        }
     </style>
 </head>
 <body>
@@ -78,11 +100,11 @@
 <table class="header-table" style="width:100%;">
   <tr>
     <!-- Logo VIAGS -->
-    <td style="width: 24%; text-align: center; vertical-align: middle;">
-      <img src="logo_viags.png" style="width: 150px; display: block; margin: 0 auto;">
+    <td style="width: 28%; text-align: center; vertical-align: middle;">
+      <img src="data:image/png;base64,{{ logo_base64 }}" style="width: 170px; display: block; margin: 0 auto;">
     </td>
     <!-- Ô giữa: Biểu mẫu sát trên, KẾT QUẢ ĐÀO TẠO căn giữa -->
-    <td style="width: 52%; position: relative; vertical-align: top; padding:0;">
+    <td style="width: 46%; position: relative; vertical-align: top; padding:0;">
       <table style="width:100%; border:none; border-collapse:collapse; height:100%;">
         <tr style="height: 1px;">
           <td style="border:none; padding:4px 0 0 8px; font-style:italic; font-size:16px; text-align:left; vertical-align:top;">
@@ -102,22 +124,22 @@
     <td style="width: 24%; padding:0; vertical-align: top;">
       <table style="width:100%; border-collapse:collapse; height:96px;">
         <tr>
-          <td style="border-bottom:1px solid black; border-left:none; border-right:none; border-top:none; font-size:16px; padding:4px 8px; text-align:left;">
+          <td style="border-bottom:1px solid black; border-left:none; border-right:none; border-top:none; font-size:18px; padding:4px 8px; text-align:left;">
             Mã số: V.TMM-F05a
           </td>
         </tr>
         <tr>
-          <td style="border-bottom:1px solid black; border-left:none; border-right:none; border-top:none; font-size:16px; padding:4px 8px; text-align:left;">
+          <td style="border-bottom:1px solid black; border-left:none; border-right:none; border-top:none; font-size:18px; padding:4px 8px; text-align:left;">
             Ban hành: 04
           </td>
         </tr>
         <tr>
-          <td style="border-bottom:1px solid black; border-left:none; border-right:none; border-top:none; font-size:16px; padding:4px 8px; text-align:left;">
+          <td style="border-bottom:1px solid black; border-left:none; border-right:none; border-top:none; font-size:18px; padding:4px 8px; text-align:left;">
             Hiệu lực: 28/12/2024
           </td>
         </tr>
         <tr>
-          <td style="border:none; font-size:16px; padding:4px 8px; text-align:left;">
+          <td style="border:none; font-size:18px; padding:4px 8px; text-align:left;">
             Trang: 1/1
           </td>
         </tr>
@@ -138,7 +160,7 @@
 </div>
 
 <!-- BẢNG KẾT QUẢ -->
-<table>
+<table class="result-table" style="width:100%; min-height: {{ min_height }}mm;">
   <thead>
     <tr>
       <th style="width:5%;">STT</th>
@@ -166,7 +188,7 @@
 </table>
 
 <!-- CHỮ KÝ -->
-<table class="sign-table signature">
+<table class="sign-table signature footer-signature">
   <tr>
     <td style="width: 33%; text-align: left;">
       <div class="sign-label">Giáo viên hướng dẫn:</div>
