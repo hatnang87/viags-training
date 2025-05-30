@@ -311,7 +311,7 @@ with tab4:
 
             # Thêm nút in vào đầu HTML
             html_report = f"""
-            <div style="text-align:right; margin-bottom:12px;">
+            <div style="text-align:right; margin-bottom:12px;" class="no-print">
                 <a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{excel_b64}"
                 download="Bao_cao_ket_qua_dao_tao.xlsx"
                 style="display:inline-block; font-size:18px; padding:6px 18px; margin-right:16px; background:#f0f0f0; border-radius:4px; text-decoration:none; border:1px solid #ccc;">
