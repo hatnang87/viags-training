@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Điểm danh học viên</title>
+    <style>
+        @page {
+            size: A4 portrait;
+            margin-top: 20mm;
+            margin-bottom: 20mm;
+            margin-left: 20mm;
+            margin-right: 10mm;
+        }
+        body {
+            font-family: "Times New Roman", serif;
+            font-size: 18px;
+            margin: 0;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid black;
+            padding: 10px 8px;
+            font-size: 18px;
+            text-align: center;
+        }
+        th {
+            text-align: center;
+        }
+        .header-table td {
+            border: 1px solid black;
+            vertical-align: middle;
+            padding: 6px;
+        }
+        .header-label {
+            font-style: italic;
+            font-size: 18px;
+            padding-top: 0;
+            padding-bottom: 2px;
+            text-align: left;
+            margin-bottom: 0;
+        }
+        .header-title {
+            font-size: 22px;
+            font-weight: bold;
+            text-align: center;
+            vertical-align: middle;
+            margin: 0;
+            padding: 0;
+            line-height: 1.2;
+        }
+        .info {
+            margin: 14px 0;
+            line-height: 1.8;
+            font-size: 18px;
+        }
+        .sign-table td {
+            height: 110px;
+            vertical-align: top;
+            padding: 8px 12px;
+            font-size: 18px;
+            border: 1px solid black;
+        }
+        .sign-label {
+            margin-bottom: 90px;
+            font-weight: normal;
+        }
+        .signature {
+            margin-top: 6px;
+        }
+        .footer-signature {
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+        @media print {
+            button, .stApp, .st-emotion-cache-1kyxreq, .st-emotion-cache-1avcm0n { display: none !important; }
+            body { margin: 0; }
+            html, body { width: 210mm; height: 297mm; }
+            .footer-signature {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+
+<body>
+<!-- HEADER -->
+<table class="header-table" style="width:100%;">
+  <tr>
+    <!-- Logo VIAGS -->
+    <td style="width: 28%; text-align: center; vertical-align: middle;">
+      <img src="data:image/png;base64,{{ logo_base64 }}" style="width: 170px; display: block; margin: 0 auto;">
+    </td>
+    <!-- Ô giữa: Biểu mẫu sát trên, ĐIỂM DANH HỌC VIÊN căn giữa -->
+    <td style="width: 46%; position: relative; vertical-align: top; padding:0;">
+      <table style="width:100%; border:none; border-collapse:collapse; height:100%;">
+        <tr style="height: 1px;">
+          <td style="border:none; padding:4px 0 0 8px; font-style:italic; font-size:16px; text-align:left; vertical-align:top;">
+            Biểu mẫu
+          </td>
+        </tr>
+        <tr>
+          <td style="border:none; padding:0; height:92px; position:relative;">
+            <div style="font-size:22px; font-weight:bold; text-align:center; position:absolute; top:50%; left:0; width:100%; transform:translateY(-50%);">
+              ĐIỂM DANH HỌC VIÊN
+            </div>
+          </td>
+        </tr>
+      </table>
+    </td>
+    <!-- Mã số...: 4 dòng, căn lề trái, mỗi dòng có border -->
+    <td style="width: 24%; padding:0; vertical-align: top;">
+      <table style="width:100%; border-collapse:collapse; height:96px;">
+        <tr>
+          <td style="border-bottom:1px solid black; border-left:none; border-right:none; border-top:none; font-size:18px; padding:4px 8px; text-align:left;">
+            Mã số: V.TMM-F10
+          </td>
+        </tr>
+        <tr>
+          <td style="border-bottom:1px solid black; border-left:none; border-right:none; border-top:none; font-size:18px; padding:4px 8px; text-align:left;">
+            Ban hành: 04
+          </td>
+        </tr>
+        <tr>
+          <td style="border-bottom:1px solid black; border-left:none; border-right:none; border-top:none; font-size:18px; padding:4px 8px; text-align:left;">
+            Hiệu lực: 28/12/2024
+          </td>
+        </tr>
+        <tr>
+          <td style="border:none; font-size:18px; padding:4px 8px; text-align:left;">
+            Trang: 1/1
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<!-- THÔNG TIN LỚP -->
+<div class="info">
+  <div><span style="font-weight:bold;">- Môn/Khóa học:</span> {{ course_name }}</div>
+  <div><span style="font-weight:bold;">- Loại hình/hình thức đào tạo:</span> {{ training_type }}</div>
+  <div><span style="font-weight:bold;">- Thời gian:</span> {{ time }}</div>
+  <div><span style="font-weight:bold;">- Địa điểm:</span> {{ location }}</div>
+  <div><span style="font-weight:bold;">- Số học viên tham dự/tổng số học viên:</span> {{ num_attended }} / {{ num_total }}</div>
+</div>
+
+<!-- BẢNG ĐIỂM DANH -->
+<table class="Sign-table" style="width:100%; min-height: {{ min_height }}mm;">
+  <thead>
+    <tr>
+        <th style="width:5%;">STT</th>
+        <th style="width:12%;">Mã NV</th>
+        <th>Họ tên</th>
+        <th>Đơn vị</th>
+        <th style="width:8%;">Ngày{% if days|length > 0 %} {{ days[0] }}{% endif %}</th>
+        <th style="width:8%;">Ngày{% if days|length > 1 %} {{ days[1] }}{% endif %}</th>
+        <th style="width:8%;">Ngày{% if days|length > 2 %} {{ days[2] }}{% endif %}</th>
+        <th>Ghi chú</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for student in students[:-1] %}
+    <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ student.id }}</td>
+        <td style="text-align:left; padding-left:4px;">{{ student.name }}</td>
+        <td>{{ student.unit }}</td>
+        <td>{{ student.day1  or "" }}</td>
+        <td>{{ student.day2  or "" }}</td>
+        <td>{{ student.day3  or "" }}</td>
+      <td style="text-align:left; padding-left:4px;">{{ student.note }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  {% if students|length > 0 %}
+  <tbody class="footer-signature" style="page-break-inside: avoid;">
+    <tr>
+        <td>{{ students|length }}</td>
+        <td>{{ students[-1].id }}</td>
+        <td style="text-align:left; padding-left:4px;">{{ students[-1].name }}</td>
+        <td>{{ students[-1].unit }}</td>
+        <td>{{ students[-1].day1  or "" }}</td>
+        <td>{{ students[-1].day2  or "" }}</td>
+        <td>{{ students[-1].day3  or "" }}</td>
+      <td style="text-align:left; padding-left:4px;">{{ students[-1].note }}</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td colspan="2" style="text-align:left; vertical-align:top; height:50px;">
+           Chữ ký giáo viên: {{ gv_huong_dan or 'Nguyễn Đức Nghĩa' }}
+        </td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+    </tr>
+  </tbody>
+  {% endif %}
+</table>
+</body> 
+</html>

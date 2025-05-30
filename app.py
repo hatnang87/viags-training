@@ -18,10 +18,10 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 with tab1:
     st.subheader("Nhập thông tin lớp học")
-    class_info_sample = '''Điều khiển xe dầu kéo - Thực hành nâng cao
-Bồi dưỡng kiến thức/Trực tiếp
+    class_info_sample = '''An toàn hàng không
+Định kỳ/Elearning+Trực tiếp
 02/01/2025
-VNBA'''
+TTĐT MB'''
     class_info_input = st.text_area("Dán vào 4 dòng gồm: Môn học, Loại hình, Thời gian, Địa điểm", value=class_info_sample, height=120)
     class_info_lines = class_info_input.strip().split("\n")
     course_name = class_info_lines[0] if len(class_info_lines) > 0 else ""
@@ -141,7 +141,7 @@ with tab3:
         st.dataframe(ds_hocvien[["Mã NV", "Họ tên", "Điểm"]], use_container_width=True)
         st.session_state["ds_hocvien"] = ds_hocvien
 
-    uploaded_dotthi = st.file_uploader("📥 Tải file điểm dạng đợt thi (E: điểm 1 lần, G: điểm nhiều lần)", type=["xlsx"], key="uploader_dotthi")
+    uploaded_dotthi = st.file_uploader("📥 Tải file điểm dạng đợt thi", type=["xlsx"], key="uploader_dotthi")
     if uploaded_dotthi is not None:
         df_dotthi = pd.read_excel(uploaded_dotthi)
         col_name_hoten = df_dotthi.columns[2]       # Cột C
@@ -181,8 +181,35 @@ with tab4:
     gv_huong_dan = st.text_input("Họ tên Giáo viên hướng dẫn", value="Nguyễn Đức Nghĩa")
     truong_bo_mon = st.text_input("Họ tên Trưởng bộ môn", value="Ngô Trung Thành")
     truong_tt = st.text_input("Họ tên Trưởng TTĐT", value="Nguyễn Chí Kiên")
+    # Đặt hàm extract_days ở đây
+    def extract_days(time_str):
+        # Ví dụ: "30,31/5/2025" hoặc "S30/5/2025"
+        # Trả về list ['30/5', '31/5']
+        if not time_str:
+            return []
+        time_str = time_str.replace('S', '').replace('s', '')
+        match = re.search(r'([\d,]+)/(\d{1,2})/(\d{4})', time_str)
+        if match:
+            days = [d.strip() for d in match.group(1).split(',')]
+            month = match.group(2)
+            return [f"{d}/{month}" for d in days if d]
+        match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', time_str)
+        if match:
+            return [f"{match.group(1)}/{match.group(2)}"]
+        return []
+    
+    # Đọc file logo và chuyển sang base64
+    with open("logo_viags.png", "rb") as image_file:
+        logo_base64 = base64.b64encode(image_file.read()).decode()
 
-    if st.button("📄 Xem trước & In báo cáo"):
+    col1, col2,_ = st.columns([1,1,6])
+    with col1:
+        bckq = st.button("📄In báo cáo kết quả")
+    with col2:
+        diem_danh = st.button("Tạo bảng điểm danh")
+
+    #Báo cáo kết quả
+    if bckq:
         ds_hocvien = st.session_state.get("ds_hocvien", pd.DataFrame())
         course_name = st.session_state.get("course_name", "")
         training_type = st.session_state.get("training_type", "")
@@ -262,18 +289,25 @@ with tab4:
             if not num_attended or not num_total:
                 num_total = len(data_sorted)
                 num_attended = sum(1 for x in data_sorted if x["score"] not in ["-", ""])
-
+            
             # Tính min_height cho bảng (ví dụ mỗi dòng ~10mm, tối thiểu 120mm)
             num_students = len(data_sorted)
-            if num_students <= 13:
+            if num_students <= 14:
+                min_height = 130
+            elif num_students <= 17:
                 min_height = 150
             else:
-                min_height = max(150, num_students * 15)
+                min_height = 120  # bảng dài thì không cần min_height lớn
 
-            # Đọc file logo và chuyển sang base64
-            with open("logo_viags.png", "rb") as image_file:
-                logo_base64 = base64.b64encode(image_file.read()).decode()
+           
 
+            # Trước khi render template:
+            days = extract_days(time)
+            for i, student in enumerate(data_sorted):
+                student["day1"] = days[0] if len(days) > 0 else ""
+                student["day2"] = days[1] if len(days) > 1 else ""
+                student["day3"] = days[2] if len(days) > 2 else ""
+            
             # Đọc template HTML
             with open("report_template.html", "r", encoding="utf-8") as f:
                 template_str = f.read()
@@ -324,8 +358,56 @@ with tab4:
 
             st.subheader("📄 Xem trước báo cáo")
             st.components.v1.html(html_report, height=1200, scrolling=True)
+    #Tạo bảng điểm danh
+    if diem_danh:       
+            ds_hocvien = st.session_state.get("ds_hocvien", pd.DataFrame())
+            df = ds_hocvien[(ds_hocvien["Mã NV"].str.strip() != "") | (ds_hocvien["Họ tên"].str.strip() != "")]
+            df = df.reset_index(drop=True)
 
-            # Tải HTML
-            #b64 = base64.b64encode(rendered.encode()).decode()
-            #href = f'<a href="data:text/html;base64,{b64}" download="bao_cao.html">📥 Tải báo cáo HTML</a>'
-            #st.markdown(href, unsafe_allow_html=True)
+            # Tách ngày từ time
+            days = extract_days(st.session_state.get("time", ""))
+            # Chuẩn hóa dữ liệu cho báo cáo điểm danh
+            students = []
+            for i, row in df.iterrows():
+                diem = row.get("Điểm", "").strip()
+                check = "X" if diem and diem not in ["", "-", "None"] else "V"
+                students.append({
+                    "stt": i + 1,
+                    "id": row["Mã NV"],
+                    "name": row["Họ tên"],
+                    "unit": row["Đơn vị"],
+                    "day1": check if len(days) > 0 else "",
+                    "day2": check if len(days) > 1 else "",
+                    "day3": check if len(days) > 2 else "",
+                    "note": ""
+                })
+            # Đếm số học viên có điểm (tức là có ít nhất 1 ngày là "X")
+            num_attended = sum(
+                1 for s in students if "X" in [s.get("day1", ""), s.get("day2", ""), s.get("day3", "")]
+            )
+            # Đọc template HTML
+            with open("attendance_template.html", "r", encoding="utf-8") as f:
+                template_str = f.read()
+            from jinja2 import Template
+            template = Template(template_str)
+            
+            # Render template với đầy đủ biến
+            attendance_html = template.render(
+                students=students,
+                course_name=st.session_state.get("course_name", ""),
+                training_type=st.session_state.get("training_type", ""),
+                time=st.session_state.get("time", ""),
+                location=st.session_state.get("location", ""),
+                num_total=len(students),
+                num_attended=num_attended,
+                gv_huong_dan=gv_huong_dan,
+                days=days,
+                logo_base64=logo_base64
+            )
+           # Thêm nút in vào đầu HTML
+            attendance_html_with_print = """
+            <div style="text-align:right; margin-bottom:12px;" class="no-print">
+                <button onclick="window.print()" style="font-size:18px;padding:6px 18px;">🖨️ In báo cáo điểm danh</button>
+            </div>
+            """ + attendance_html
+            st.components.v1.html(attendance_html_with_print, height=1000, scrolling=True)
