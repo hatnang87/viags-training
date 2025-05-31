@@ -1,5 +1,5 @@
 streamlit
 pandas
+sqlalchemy
+streamlit-authenticator
 jinja2
-xlsxwriter
-openpyxl
