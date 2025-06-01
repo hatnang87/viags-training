@@ -4,18 +4,49 @@ from jinja2 import Template
 import base64
 import re
 import io
+import locale
+import unicodedata
+import openpyxl
 
 st.set_page_config(page_title="Báo cáo kết quả đào tạo - VIAGS", layout="wide")
 
 st.title("📋 Tạo báo cáo kết quả đào tạo - VIAGS (Nhiều lớp)")
 
+# Hàm chuẩn hóa thời gian
+def chuan_hoa_thoi_gian(time_str):
+    # 26-27/5/2025 -> 26,27/5/2025
+    match = re.match(r"(\d{1,2})-(\d{1,2})/(\d{1,2}/\d{4})", str(time_str))
+    if match:
+        ngay1, ngay2, thangnam = match.groups()
+        return f"{ngay1},{ngay2}/{thangnam}"
+    return str(time_str).strip()
+
+# Hàm loại bỏ dấu tiếng Việt và chuẩn hóa chuỗi
+def remove_vietnamese_accents(s):
+    if not isinstance(s, str):
+        return ""
+    s = unicodedata.normalize('NFD', s)
+    s = s.encode('ascii', 'ignore').decode('utf-8')
+    s = s.replace(' ', '').lower()
+    return s
 # ========== Quản lý nhiều lớp ==========
 if "danh_sach_lop" not in st.session_state:
     st.session_state["danh_sach_lop"] = {}
 if "ten_lop_hien_tai" not in st.session_state:
     st.session_state["ten_lop_hien_tai"] = ""
+if "hien_nhap_excel" not in st.session_state:
+    st.session_state["hien_nhap_excel"] = False
 
-ds_lop = list(st.session_state["danh_sach_lop"].keys())
+# Sắp xếp danh sách lớp theo thứ tự tiếng Việt
+try:
+    locale.setlocale(locale.LC_COLLATE, "vi_VN.UTF-8")
+except:
+    locale.setlocale(locale.LC_COLLATE, "Vietnamese")
+ds_lop = sorted(
+    st.session_state["danh_sach_lop"].keys(),
+    key=locale.strxfrm
+)
+
 chuc_nang = st.columns([5, 2, 2, 3])
 with chuc_nang[0]:
     ten_lop = st.selectbox(
@@ -32,53 +63,49 @@ with chuc_nang[2]:
             del st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]
             st.session_state["ten_lop_hien_tai"] = ds_lop[0] if ds_lop else ""
 with chuc_nang[3]:
-    if st.button("📥 Nhập nhiều lớp từ Excel"):
+    if st.button("📥 Nhập nhiều lớp từ Excel", key="open_excel_modal"):
         st.session_state["hien_nhap_excel"] = True
 
-# Hiển thị khối nhập file Excel khi bấm nút
+# Hiển thị khối nhập file Excel khi bấm nút (giả popup)
 if st.session_state.get("hien_nhap_excel", False):
-    st.subheader("📥 Nhập nhiều lớp từ file Excel (mỗi sheet 1 lớp)")
-    file_excel = st.file_uploader("Chọn file Excel danh sách lớp", type=["xlsx"], key="multi_class_uploader_import")
-    col_excel = st.columns([2, 1])
-    with col_excel[0]:
-        nhap_excel = st.button("Nhập các lớp vào hệ thống", key="btn_nhap_excel")
-    with col_excel[1]:
-        huy_excel = st.button("❌ Đóng nhập nhiều lớp", key="btn_huy_excel")
-
-    # Xử lý nhập và đóng form
-    if huy_excel:
-        st.session_state["hien_nhap_excel"] = False
-        st.experimental_rerun()
+    with st.expander("📥 Nhập nhiều lớp từ file Excel (mỗi sheet 1 lớp)", expanded=True):
+        file_excel = st.file_uploader(
+            "Chọn file Excel danh sách lớp",
+            type=["xlsx"],
+            key="multi_class_uploader_import"
+        )
+        col_excel = st.columns([2, 1])
+        with col_excel[0]:
+            nhap_excel = st.button("Nhập các lớp vào hệ thống", key="btn_nhap_excel")
+        with col_excel[1]:
+            huy_excel = st.button("❌ Đóng nhập nhiều lớp", key="btn_huy_excel")
+        # Xử lý nhập và đóng form
+        if huy_excel:
+            st.session_state["hien_nhap_excel"] = False
+            st.rerun()
 
     if file_excel is not None and nhap_excel:
-        import openpyxl
-        import re
-
         wb = openpyxl.load_workbook(file_excel, data_only=True)
         so_lop_them = 0
         lop_moi_vua_them = None
         log_sheets = []
 
         for sheetname in wb.sheetnames:
+            sheet_check = remove_vietnamese_accents(sheetname)
+            if sheet_check == "mucluc":
+                log_sheets.append(f"⏩ Bỏ qua sheet '{sheetname}' (Mục lục).")
+                continue
+
             ws = wb[sheetname]
             ten_lop_goc = ws["D7"].value
             if not ten_lop_goc or str(ten_lop_goc).strip() == "":
                 log_sheets.append(f"❌ Sheet '{sheetname}': Thiếu tên lớp ở D7.")
                 continue
 
-            # Trích 4 ký tự đầu
-            ten4 = str(ten_lop_goc)[:4].strip().replace(" ", "")
-            # Lấy ngày học từ D9 (thời gian)
             thoi_gian = ws["D9"].value or ""
-            # Tìm ngày đầu tiên trong chuỗi (dạng dd/mm/yyyy)
-            match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", str(thoi_gian))
-            if match:
-                ngay_hoc = f"{match.group(3)}{int(match.group(2)):02d}{int(match.group(1)):02d}"
-            else:
-                ngay_hoc = "unknown"
-            ten_lop = f"{ten4}_{ngay_hoc}"
-
-            # Đảm bảo không trùng tên lớp
+            thoi_gian_chuan = chuan_hoa_thoi_gian(thoi_gian)
+            # Tạo tên lớp như code bố đang dùng
+            ten_lop = f"{str(ten_lop_goc).strip()}_{str(thoi_gian).strip()}"
             orig_ten_lop = ten_lop
             cnt = 1
             while ten_lop in st.session_state["danh_sach_lop"]:
@@ -88,28 +115,37 @@ if st.session_state.get("hien_nhap_excel", False):
             # Loại hình/hình thức đào tạo
             loai_hinh_full = ws["B8"].value or ""
             if ":" in str(loai_hinh_full):
-                loai_hinh = str(loai_hinh_full).split(":", 1)[1].strip()
+                loai_hinh = str(loai_hinh_full).split(":", 1)[-1].strip()
             else:
                 loai_hinh = str(loai_hinh_full).strip()
-
             dia_diem = ws["D10"].value or ""
 
-            # Đọc danh sách học viên từ dòng 14 trở đi
+            # Đọc danh sách học viên từ dòng 14 trở đi (C14 - Mã NV, D14 - Họ tên, E14 - Đơn vị)
             data = []
             row = 14
             while True:
-                ma_nv = ws[f"B{row}"].value
-                ho_ten = ws[f"C{row}"].value
-                don_vi = ws[f"D{row}"].value
+                ma_nv = ws[f"C{row}"].value
+                ho_ten = ws[f"D{row}"].value
+                don_vi = ws[f"E{row}"].value
+                # Nếu cả 3 ô đều trống thì dừng
                 if (not ma_nv or str(ma_nv).strip() == "") and (not ho_ten or str(ho_ten).strip() == ""):
                     break
-                data.append({
-                    "Mã NV": str(ma_nv or "").strip(),
-                    "Họ tên": str(ho_ten or "").strip(),
-                    "Đơn vị": str(don_vi or "").strip(),
-                    "Điểm": ""
-                })
+                # Nếu 1 trong các ô chứa từ khóa "Trưởng", "Trung tâm", "Ký tên" thì dừng
+                if any((
+                    (isinstance(ma_nv, str) and ("trưởng" in ma_nv.lower() or "trung tâm" in ma_nv.lower() or "ký tên" in ma_nv.lower())),
+                    (isinstance(ho_ten, str) and ("trưởng" in ho_ten.lower() or "trung tâm" in ho_ten.lower() or "ký tên" in ho_ten.lower())),
+                    (isinstance(don_vi, str) and ("trưởng" in don_vi.lower() or "trung tâm" in don_vi.lower() or "ký tên" in don_vi.lower()))
+                )):
+                    break
+                if (ma_nv and str(ma_nv).strip() != "") or (ho_ten and str(ho_ten).strip() != ""):
+                    data.append({
+                        "Mã NV": str(ma_nv or "").strip(),
+                        "Họ tên": str(ho_ten or "").strip(),
+                        "Đơn vị": str(don_vi or "").strip(),
+                        "Điểm": ""
+                    })
                 row += 1
+
 
             if len(data) > 0:
                 df = pd.DataFrame(data)
@@ -117,7 +153,7 @@ if st.session_state.get("hien_nhap_excel", False):
                     "class_info": {
                         "course_name": ten_lop_goc,
                         "training_type": loai_hinh,
-                        "time": thoi_gian,
+                        "time": thoi_gian_chuan,
                         "location": dia_diem,
                         "num_attended": "",
                         "num_total": "",
@@ -128,7 +164,7 @@ if st.session_state.get("hien_nhap_excel", False):
                 so_lop_them += 1
                 log_sheets.append(f"✅ Sheet '{sheetname}' ({ten_lop_goc}) đã nhập {len(data)} học viên (tên lớp: {ten_lop})")
             else:
-                log_sheets.append(f"❌ Sheet '{sheetname}': Không có học viên ở dòng 14 trở đi.")
+                log_sheets.append(f"❌ Sheet '{sheetname}': Không có học viên ở C14-E14 trở đi.")
 
         if so_lop_them:
             st.session_state["ten_lop_hien_tai"] = lop_moi_vua_them
@@ -140,18 +176,17 @@ if st.session_state.get("hien_nhap_excel", False):
         else:
             for log in log_sheets:
                 st.write(log)
-            st.warning("Không tìm thấy sheet nào hợp lệ (phải có D7 là tên lớp và danh sách học viên từ dòng 14).")
+            st.warning("Không tìm thấy sheet nào hợp lệ (phải có D7 là tên lớp và học viên từ C14-E14).")
 
 # Tạo lớp mới
 if tao_lop and ten_moi.strip():
     if ten_moi not in st.session_state["danh_sach_lop"]:
-        # Dữ liệu mặc định cho lớp mới
         st.session_state["danh_sach_lop"][ten_moi] = {
             "class_info": {
                 "course_name": "",
                 "training_type": "",
                 "time": "",
-                "location": "",
+                "location": "", 
                 "num_attended": "",
                 "num_total": "",
             },
