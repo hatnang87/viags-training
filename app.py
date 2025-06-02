@@ -4,7 +4,6 @@ from jinja2 import Template
 import base64
 import re
 import io
-import locale
 import unicodedata
 import openpyxl
 
@@ -29,6 +28,12 @@ def remove_vietnamese_accents(s):
     s = s.encode('ascii', 'ignore').decode('utf-8')
     s = s.replace(' ', '').lower()
     return s
+
+def strip_accents(s):
+    if not isinstance(s, str):
+        return ""
+    return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+
 # ========== Quản lý nhiều lớp ==========
 if "danh_sach_lop" not in st.session_state:
     st.session_state["danh_sach_lop"] = {}
@@ -38,14 +43,9 @@ if "hien_nhap_excel" not in st.session_state:
     st.session_state["hien_nhap_excel"] = False
 
 # Sắp xếp danh sách lớp theo thứ tự tiếng Việt
-try:
-    locale.setlocale(locale.LC_COLLATE, "vi_VN.UTF-8")
-except:
-    locale.setlocale(locale.LC_COLLATE, "Vietnamese")
-ds_lop = sorted(
-    st.session_state["danh_sach_lop"].keys(),
-    key=locale.strxfrm
-)
+
+ds_lop = sorted(df_muc_luc["MaLop"].tolist(), key=strip_accents) if not df_muc_luc.empty else []
+
 
 chuc_nang = st.columns([5, 2, 2, 3])
 with chuc_nang[0]:
