@@ -9,7 +9,7 @@ import openpyxl
 
 st.set_page_config(page_title="Báo cáo kết quả đào tạo - VIAGS", layout="wide")
 
-st.title("📋 Tạo báo cáo kết quả đào tạo - VIAGS (Nhiều lớp)")
+st.title("📋 Quản lý lớp học - VIAGS")
 
 # Hàm chuẩn hóa thời gian
 def chuan_hoa_thoi_gian(time_str):
@@ -32,7 +32,10 @@ def remove_vietnamese_accents(s):
 def strip_accents(s):
     if not isinstance(s, str):
         return ""
-    return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    s = unicodedata.normalize('NFD', s)
+    s = s.replace('Đ', 'D').replace('đ', 'd')
+    return ''.join(c for c in s if unicodedata.category(c) != 'Mn')
+
 
 # ========== Quản lý nhiều lớp ==========
 if "danh_sach_lop" not in st.session_state:
@@ -44,8 +47,7 @@ if "hien_nhap_excel" not in st.session_state:
 
 # Sắp xếp danh sách lớp theo thứ tự tiếng Việt
 
-ds_lop = sorted(df_muc_luc["MaLop"].tolist(), key=strip_accents) if not df_muc_luc.empty else []
-
+ds_lop = sorted(list(st.session_state["danh_sach_lop"].keys()), key=strip_accents)
 
 chuc_nang = st.columns([5, 2, 2, 3])
 with chuc_nang[0]:
