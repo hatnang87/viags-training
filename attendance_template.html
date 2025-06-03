@@ -146,7 +146,9 @@
   <div><span style="font-weight:bold;">- Loại hình/hình thức đào tạo:</span> {{ training_type }}</div>
   <div><span style="font-weight:bold;">- Thời gian:</span> {{ time }}</div>
   <div><span style="font-weight:bold;">- Địa điểm:</span> {{ location }}</div>
-  <div><span style="font-weight:bold;">- Số học viên tham dự/tổng số học viên:</span> {{ num_attended }} / {{ num_total }}</div>
+  <div><span style="font-weight:bold;">- Số học viên tham dự/tổng số học viên:</span> {{ num_attended }}/{{ num_total }}{% if class_code %} ({{ class_code }}){% endif %}
+
+</div>
 </div>
 
 <!-- BẢNG ĐIỂM DANH -->
@@ -167,7 +169,7 @@
     {% for student in students[:-1] %}
     <tr>
         <td>{{ loop.index }}</td>
-        <td>{{ student.id }}</td>
+        <td style="width:80px; max-width:80px; word-break:break-all; white-space:normal;">{{ student.id }}</td>
         <td style="text-align:left; padding-left:4px;">{{ student.name }}</td>
         <td>{{ student.unit }}</td>
         <td>{{ student.day1  or "" }}</td>
@@ -181,7 +183,7 @@
   <tbody class="footer-signature" style="page-break-inside: avoid;">
     <tr>
         <td>{{ students|length }}</td>
-        <td>{{ students[-1].id }}</td>
+        <td style="width:80px; max-width:80px; word-break:break-all; white-space:normal;">{{ students[-1].id }}</td>
         <td style="text-align:left; padding-left:4px;">{{ students[-1].name }}</td>
         <td>{{ students[-1].unit }}</td>
         <td>{{ students[-1].day1  or "" }}</td>

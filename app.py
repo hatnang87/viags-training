@@ -236,97 +236,86 @@ with tab1:
     class_info_sample = '''An toàn hàng không
 Định kỳ/Elearning+Trực tiếp
 02/01/2025
-TTĐT MB'''
-    class_info_input = st.text_area("Dán vào 4 dòng gồm: Môn học, Loại hình, Thời gian, Địa điểm", value="\n".join([
-        class_info.get("course_name", ""),
-        class_info.get("training_type", ""),
-        class_info.get("time", ""),
-        class_info.get("location", ""),
-        class_info.get("num_attended", "") + "/" + class_info.get("num_total", "") if class_info.get("num_attended", "") else ""
-    ]) if any(class_info.values()) else class_info_sample, height=120)
+TTĐT MB
+VNBA25-ĐKVH04'''
+    class_info_input = st.text_area(
+        "Dán vào 5 dòng gồm: Môn học, Loại hình, Thời gian, Địa điểm, [Mã lớp/ghi chú nếu có]", 
+        value="\n".join([
+            class_info.get("course_name", ""),
+            class_info.get("training_type", ""),
+            class_info.get("time", ""),
+            class_info.get("location", ""),
+            class_info.get("class_code", "")
+        ]) if any(class_info.values()) else class_info_sample, height=130)
+
     class_info_lines = class_info_input.strip().split("\n")
     course_name = class_info_lines[0] if len(class_info_lines) > 0 else ""
     training_type = class_info_lines[1] if len(class_info_lines) > 1 else ""
     time = class_info_lines[2] if len(class_info_lines) > 2 else ""
     location = class_info_lines[3] if len(class_info_lines) > 3 else ""
-    if len(class_info_lines) > 4 and "/" in class_info_lines[4]:
-        num_info = class_info_lines[4].split("/")
-        num_attended = num_info[0].strip()
-        num_total = num_info[1].strip()
-    else:
-        num_attended = ""
-        num_total = ""
-    # Lưu lại
+    class_code_note = class_info_lines[4].strip() if len(class_info_lines) > 4 else ""
+
     class_info = {
         "course_name": course_name,
         "training_type": training_type,
         "time": time,
         "location": location,
-        "num_attended": num_attended,
-        "num_total": num_total,
+        "class_code": class_code_note,
     }
-    lop_data["class_info"] = class_info
+    st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["class_info"] = class_info
+
 
 with tab2:
+    ds_hocvien = st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"].copy()
     st.subheader("Danh sách học viên và nhập điểm")
-    # Hiển thị bảng cho nhập liệu
-    st.caption("📌 Dán danh sách học viên (copy từ Excel), điểm dạng 70/90 nếu thi nhiều lần.")
+    st.caption("📌 Dán danh sách học viên, nhập thủ công hoặc paste điểm LT, TH nếu cần.")
+
+    # Đảm bảo đủ 5 cột chính, không thừa cột điểm khác
+    for col in ["Mã NV", "Họ tên", "Đơn vị", "Điểm LT", "Điểm TH"]:
+        if col not in ds_hocvien.columns:
+            ds_hocvien[col] = ""
+    ds_hocvien = ds_hocvien[["Mã NV", "Họ tên", "Đơn vị", "Điểm LT", "Điểm TH"]]
+
     ds_hocvien = st.data_editor(
         ds_hocvien,
         num_rows="dynamic",
         hide_index=False,
         use_container_width=True,
-        column_order=["Mã NV", "Họ tên", "Đơn vị", "Điểm"],
+        column_order=["Mã NV", "Họ tên", "Đơn vị", "Điểm LT", "Điểm TH"],
         column_config={
-            "Mã NV": st.column_config.TextColumn(width="small"),
+            "Mã NV": st.column_config.TextColumn(width="x-small"),
             "Họ tên": st.column_config.TextColumn(width="large"),
             "Đơn vị": st.column_config.TextColumn(width="medium"),
-            "Điểm": st.column_config.TextColumn(width="small"),
+            "Điểm LT": st.column_config.TextColumn(width="x-small"),
+            "Điểm TH": st.column_config.TextColumn(width="x-small"),
         },
         key="data_editor_ds"
     )
-    # Làm sạch dữ liệu nhập
-    for col in ["Mã NV", "Họ tên", "Đơn vị", "Điểm"]:
-        ds_hocvien[col] = ds_hocvien[col].astype(str).str.strip()
-    # Kiểm tra & làm tròn điểm
-    error_rows = []
-    for i, row in ds_hocvien.iterrows():
-        diem_str = row.get("Điểm", "").strip()
-        if diem_str:
-            parts = [x.strip() for x in diem_str.split("/")]
-            diem_moi = []
-            for p in parts:
-                try:
-                    p_float = float(p.replace(",", "."))
-                    p_int = int(round(p_float))
-                    if 0 <= p_int <= 100:
-                        diem_moi.append(str(p_int))
-                    else:
-                        error_rows.append((i, row["Họ tên"], p))
-                except:
-                    error_rows.append((i, row["Họ tên"], p))
-            ds_hocvien.at[i, "Điểm"] = "/".join(diem_moi)
-        else:
-            ds_hocvien.at[i, "Điểm"] = ""
-    # Lưu lại vào session_state
-    lop_data["ds_hocvien"] = ds_hocvien
-    # Cảnh báo nếu có lỗi
-    if error_rows:
-        st.warning("⚠️ Có điểm không hợp lệ:\n" + "\n".join([f"{idx+1} - {name} (giá trị: {val})" for idx, name, val in error_rows]))
-    else:
-        st.info("✅ Toàn bộ điểm đã được kiểm tra và làm tròn đúng định dạng.")
+
+    # Lưu mọi thay đổi thủ công vào session (nếu có)
+    st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"] = ds_hocvien.copy()
+
 
 with tab3:
-    st.subheader("Upload file điểm và tự động ghép điểm vào danh sách")
-    uploaded_lms = st.file_uploader("📥 Tải file điểm dạng lớp học (LMS_RPT)", type=["xlsx"], key="uploader_lms")
+    st.subheader("Upload file điểm và tự động GHÉP vào cột Điểm LT (không sửa, không xóa, không thêm dòng)")
+
+    def normalize_name(s):
+        import re
+        return re.sub(r"\s+", "", str(s).strip().lower())
+
+    # Lấy danh sách hiện tại, KHÔNG bao giờ ghi đè lên bằng dữ liệu lạ
+    ds_hocvien = st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"].copy()
+    if ds_hocvien.empty or "Họ tên" not in ds_hocvien.columns:
+        st.error("❌ Không tìm thấy cột 'Họ tên' trong danh sách học viên. Vui lòng nhập lớp hoặc danh sách học viên trước.")
+        st.stop()
+    ds_hocvien["HoTenChuan"] = ds_hocvien["Họ tên"].apply(normalize_name)
+
+    # ========== LMS ==========
+    uploaded_lms = st.file_uploader("📥 Tải file điểm dạng LMS", type=["xlsx"], key="uploader_lms")
     if uploaded_lms is not None:
         df_diem = pd.read_excel(uploaded_lms)
-        col_name_hoten = df_diem.columns[3]    # Cột D
-        col_name_lanthi = df_diem.columns[6]   # Cột G
-
-        def normalize_name(s):
-            import re
-            return re.sub(r"\s+", "", str(s).strip().lower())
+        col_name_hoten = df_diem.columns[3]
+        col_name_lanthi = df_diem.columns[6]
         df_diem["HoTenChuan"] = df_diem[col_name_hoten].apply(normalize_name)
 
         def extract_diem_lanthi(text):
@@ -336,52 +325,80 @@ with tab3:
             return "/".join(scores)
         df_diem["DiemDaXuLy"] = df_diem[col_name_lanthi].apply(extract_diem_lanthi)
 
-        ds_hocvien["HoTenChuan"] = ds_hocvien["Họ tên"].apply(normalize_name)
         diem_map = dict(zip(df_diem["HoTenChuan"], df_diem["DiemDaXuLy"]))
-        ds_hocvien["Điểm"] = ds_hocvien["HoTenChuan"].map(diem_map).fillna(ds_hocvien["Điểm"])
-        st.success("Đã cập nhật điểm từ file LMS (theo họ tên)!")
-        st.dataframe(ds_hocvien[["Mã NV", "Họ tên", "Điểm"]], use_container_width=True)
-        lop_data["ds_hocvien"] = ds_hocvien
+        matched = 0
+        for i, row in ds_hocvien.iterrows():
+            key = row["HoTenChuan"]
+            if key in diem_map and diem_map[key]:
+                ds_hocvien.at[i, "Điểm LT"] = diem_map[key]
+                matched += 1
 
+        if matched > 0:
+            st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"] = ds_hocvien.drop(columns=["HoTenChuan"]).copy()
+            st.success(f"✅ Đã ghép điểm LT cho {matched} học viên.")
+        else:
+            st.warning("⚠️ Không có học viên nào trùng tên để ghép điểm. Danh sách học viên giữ nguyên.")
+
+        # Hiển thị để kiểm tra, KHÔNG lưu nếu không có ai trùng tên
+        st.dataframe(ds_hocvien[["Mã NV", "Họ tên", "Đơn vị", "Điểm LT", "Điểm TH"]], use_container_width=True)
+
+    # ========== ĐỢT THI ==========
     uploaded_dotthi = st.file_uploader("📥 Tải file điểm dạng đợt thi", type=["xlsx"], key="uploader_dotthi")
     if uploaded_dotthi is not None:
         df_dotthi = pd.read_excel(uploaded_dotthi)
-        col_name_hoten = df_dotthi.columns[2]       # Cột C
-        col_name_diem_1lan = df_dotthi.columns[4]   # Cột E
-        col_name_diem_nlan = df_dotthi.columns[6]   # Cột G
-
-        def normalize_name(s):
-            return re.sub(r"\s+", "", str(s).strip().lower())
+        col_name_hoten = df_dotthi.columns[2]
+        col_name_diem_1lan = df_dotthi.columns[4]
+        col_name_diem_nlan = df_dotthi.columns[6]
 
         def extract_score_dotthi(row):
             diem_1lan = row[col_name_diem_1lan]
             diem_nlan = row[col_name_diem_nlan]
             if pd.notnull(diem_nlan) and str(diem_nlan).strip() != "":
                 scores = re.findall(r"Lần\s*\d+\s*:\s*(\d+)", str(diem_nlan))
-                if scores:
-                    return "/".join(scores)
-                else:
-                    return str(diem_nlan).strip()
+                return "/".join(scores) if scores else str(diem_nlan).strip()
             elif pd.notnull(diem_1lan) and str(diem_1lan).strip() != "":
                 return str(diem_1lan).strip()
-            else:
-                return ""
+            return ""
 
         df_dotthi["HoTenChuan"] = df_dotthi[col_name_hoten].apply(normalize_name)
         df_dotthi["DiemDaXuLy"] = df_dotthi.apply(extract_score_dotthi, axis=1)
-        ds_hocvien["HoTenChuan"] = ds_hocvien["Họ tên"].apply(normalize_name)
-        diem_map = dict(zip(df_dotthi["HoTenChuan"], df_dotthi["DiemDaXuLy"]))
-        ds_hocvien["Điểm"] = ds_hocvien["HoTenChuan"].map(diem_map).fillna(ds_hocvien["Điểm"])
 
-        st.success("Đã tự động cập nhật điểm từ file đợt thi!")
-        st.dataframe(ds_hocvien[["Mã NV", "Họ tên", "Điểm"]], use_container_width=True)
-        lop_data["ds_hocvien"] = ds_hocvien
+        diem_map = dict(zip(df_dotthi["HoTenChuan"], df_dotthi["DiemDaXuLy"]))
+        matched = 0
+        for i, row in ds_hocvien.iterrows():
+            key = row["HoTenChuan"]
+            if key in diem_map and diem_map[key]:
+                ds_hocvien.at[i, "Điểm LT"] = diem_map[key]
+                matched += 1
+
+        if matched > 0:
+            st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"] = ds_hocvien.drop(columns=["HoTenChuan"]).copy()
+            st.success(f"✅ Đã ghép điểm LT cho {matched} học viên.")
+        else:
+            st.warning("⚠️ Không có học viên nào trùng tên để ghép điểm. Danh sách học viên giữ nguyên.")
+
+        st.dataframe(ds_hocvien[["Mã NV", "Họ tên", "Đơn vị", "Điểm LT", "Điểm TH"]], use_container_width=True)
 
 with tab4:
     st.subheader("Thông tin chữ ký báo cáo & Xuất báo cáo")
+
+    # Lấy danh sách học viên từ đúng lớp đang chọn
+    ds_hocvien = st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"].copy()
+
     gv_huong_dan = st.text_input("Họ tên Giáo viên hướng dẫn", value="Nguyễn Đức Nghĩa")
     truong_bo_mon = st.text_input("Họ tên Trưởng bộ môn", value="Ngô Trung Thành")
     truong_tt = st.text_input("Họ tên Trưởng TTĐT", value="Nguyễn Chí Kiên")
+
+    # Lấy thông tin lớp
+    lop_data = st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]
+    class_info = lop_data["class_info"]
+    course_name = class_info.get("course_name", "")
+    training_type = class_info.get("training_type", "")
+    time = class_info.get("time", "")
+    location = class_info.get("location", "")
+    num_attended = class_info.get("num_attended", "")
+    num_total = class_info.get("num_total", "")
+
     def extract_days(time_str):
         if not time_str:
             return []
@@ -399,106 +416,212 @@ with tab4:
     with open("logo_viags.png", "rb") as image_file:
         logo_base64 = base64.b64encode(image_file.read()).decode()
 
-    col1, col2,_ = st.columns([1,1,4])
+    col1, col2, _ = st.columns([1, 1, 4])
     with col1:
         bckq = st.button("📄In báo cáo kết quả")
     with col2:
         diem_danh = st.button("Tạo bảng điểm danh")
 
     if bckq:
-        ds_hocvien = lop_data["ds_hocvien"]
-        course_name = class_info.get("course_name", "")
-        training_type = class_info.get("training_type", "")
-        time = class_info.get("time", "")
-        location = class_info.get("location", "")
-        num_attended = class_info.get("num_attended", "")
-        num_total = class_info.get("num_total", "")
-
         if ds_hocvien.empty:
             st.warning("Vui lòng nhập danh sách học viên!")
         else:
-            ds_hocvien_filtered = ds_hocvien[(ds_hocvien["Mã NV"].str.strip() != "") | (ds_hocvien["Họ tên"].str.strip() != "")]
+            # Lọc bỏ dòng trống
+            ds_hocvien_filtered = ds_hocvien[
+                (ds_hocvien["Mã NV"].astype(str).str.strip() != "") | (ds_hocvien["Họ tên"].astype(str).str.strip() != "")]
             data = []
+
+            # Kiểm tra loại mẫu báo cáo: chỉ LT hoặc chỉ TH thì 5a, đủ LT+TH thì 5b
+            diem_lt_nonempty = ds_hocvien_filtered["Điểm LT"].astype(str).str.strip().replace("-", "").replace("nan", "").replace("None", "").ne("").sum()
+            diem_th_nonempty = ds_hocvien_filtered["Điểm TH"].astype(str).str.strip().replace("-", "").replace("nan", "").replace("None", "").ne("").sum()
+            use_5b = diem_lt_nonempty > 0 and diem_th_nonempty > 0
+            template_file = "report_template_5b.html" if use_5b else "report_template_5a.html"
+
             for i, row in ds_hocvien_filtered.iterrows():
-                if (
-                    not row["Mã NV"].strip() or row["Mã NV"].strip().lower() == "none"
-                ) and (
-                    not row["Họ tên"].strip() or row["Họ tên"].strip().lower() == "none"
-                ):
+                ma_nv = str(row.get("Mã NV", "") or "").strip()
+                ho_ten = str(row.get("Họ tên", "") or "").strip()
+                if (not ma_nv or ma_nv.lower() == "none") and (not ho_ten or ho_ten.lower() == "none"):
                     continue
-                data.append({
-                    "id": row["Mã NV"],
-                    "name": row["Họ tên"],
-                    "unit": row["Đơn vị"],
-                    "raw_score": row.get("Điểm", "")
-                })
-            def process_student(row):
-                score_str = row["raw_score"]
-                if not score_str or score_str.strip() in ["-", ""]:
-                    return "-", "-", "Vắng", 99, 0, 0, 6
-                try:
-                    scores = [int(s.strip()) for s in score_str.split("/") if s.strip().isdigit()]
-                    num_tests = len(scores)
-                    score_1 = scores[0] if scores else 0
-                    final_score = scores[-1] if scores else 0
-                    note = ""
-                    if num_tests > 1:
-                        note = f"Kiểm tra lần {'/'.join(str(i+1) for i in range(num_tests))}"
-                    if num_tests == 1:
-                        if final_score >= 95:
+
+                diem_lt = str(row.get("Điểm LT", "") or "").strip()
+                diem_th = str(row.get("Điểm TH", "") or "").strip()
+
+                if use_5b:
+                    diem_lt = diem_lt if diem_lt not in ["", "nan", "None", None] else "-"
+                    diem_th = diem_th if diem_th not in ["", "nan", "None", None] else "-"
+
+                    # Lấy điểm cuối cùng nếu có nhiều lần (dạng 70/75/90)
+                    def get_last_score(s):
+                        if s in ["", "-", "nan", "None", None]:
+                            return 0
+                        parts = [p.strip() for p in str(s).replace(",", ".").split("/") if p.strip().replace(".", "", 1).isdigit()]
+                        return float(parts[-1]) if parts else 0
+
+                    d_lt = get_last_score(diem_lt)
+                    d_th = get_last_score(diem_th)
+                    try:
+                        diem_tb = round((d_lt + 2 * d_th) / 3)
+                    except:
+                        diem_tb = 0
+                    if diem_tb >= 95:
+                        xep_loai = "Xuất sắc"
+                    elif diem_tb >= 80:
+                        xep_loai = "Đạt"
+                    else:
+                        xep_loai = "Không đạt"
+                    # Ghi chú theo số lần kiểm tra
+                    if diem_lt == "-" and diem_th == "-":
+                        note = "Vắng"
+                    else:
+                        note = ""
+                        main_scores = [s for s in str(diem_lt).split("/") if s.strip().isdigit()]
+                        if len(main_scores) <= 1:
+                            main_scores = [s for s in str(diem_th).split("/") if s.strip().isdigit()]
+                        if len(main_scores) > 1:
+                            note = f"Kiểm tra lần {'/'.join(str(i+1) for i in range(len(main_scores)))}"
+                    data.append({
+                        "id": ma_nv,
+                        "name": ho_ten,
+                        "unit": str(row.get("Đơn vị", "") or "").strip(),
+                        "score_lt": diem_lt,
+                        "score_th": diem_th,
+                        "score_tb": diem_tb,
+                        "rank": xep_loai,
+                        "note": note
+                    })
+                else:
+                    if diem_lt and diem_lt not in ["", "-", "nan", "None", None]:
+                        diem_chinh = diem_lt
+                    elif diem_th and diem_th not in ["", "-", "nan", "None", None]:
+                        diem_chinh = diem_th
+                    else:
+                        diem_chinh = "-"
+                    try:
+                        # Sửa: lấy điểm lần cuối nếu nhiều lần
+                        parts = [p.strip() for p in str(diem_chinh).replace(",", ".").split("/") if p.strip().replace(".", "", 1).isdigit()]
+                        diem_num = float(parts[-1]) if parts else 0
+                    except:
+                        diem_num = 0
+                    if diem_chinh in ["", "nan", "None", None]:
+                        diem_chinh = "-"
+                    if diem_num >= 95:
+                        xep_loai = "Xuất sắc"
+                    elif diem_num >= 80:
+                        xep_loai = "Đạt"
+                    elif diem_num > 0:
+                        xep_loai = "Không đạt"
+                    else:
+                        xep_loai = "-"
+
+                    # Ghi chú: Vắng hoặc kiểm tra nhiều lần
+                    if diem_chinh == "-":
+                        note = "Vắng"
+                    else:
+                        scores = [s for s in str(diem_chinh).split("/") if s.strip().isdigit()]
+                        if len(scores) > 1:
+                            note = f"Kiểm tra lần {'/'.join(str(i+1) for i in range(len(scores)))}"
+                        else:
+                            note = ""
+                    data.append({
+                        "id": ma_nv,
+                        "name": ho_ten,
+                        "unit": str(row.get("Đơn vị", "") or "").strip(),
+                        "score": diem_chinh,
+                        "rank": xep_loai,
+                        "note": note
+                    })
+
+            # Sắp xếp
+            def calc_group_numtests_score1(student):
+                # 5b
+                if "score_tb" in student:
+                    score_str = str(student.get("score_lt", "") or "")
+                    th_str = str(student.get("score_th", "") or "")
+                    scores = [s for s in score_str.split("/") if s.strip().isdigit()]
+                    if len(scores) <= 1:
+                        scores = [s for s in th_str.split("/") if s.strip().isdigit()]
+                    num_tests = len(scores) if scores else 1
+                    score_1 = student.get("score_tb", 0)
+                    # Không có điểm
+                    if student.get("score_lt", "-") == "-" and student.get("score_th", "-") == "-":
+                        group = 6
+                    elif num_tests == 1:
+                        if score_1 >= 95:
                             group = 1
-                            rank = "Xuất sắc"
-                        elif final_score >= 80:
+                        elif score_1 >= 80:
                             group = 2
-                            rank = "Đạt"
                         else:
                             group = 4
-                            rank = "Không đạt"
-                    elif num_tests >= 2:
-                        if final_score >= 80:
+                    else:
+                        if score_1 >= 80:
                             group = 3
-                            rank = "Đạt"
                         else:
                             group = 5
-                            rank = "Không đạt"
-                    else:
+                # 5a
+                else:
+                    score_str = str(student.get("score", "") or "")
+                    scores = [s for s in score_str.split("/") if s.strip().isdigit()]
+                    num_tests = len(scores) if scores else 1
+                    try:
+                        parts = [p.strip() for p in score_str.replace(",", ".").split("/") if p.strip().replace(".", "", 1).isdigit()]
+                        score_1 = float(parts[-1]) if parts else 0
+                    except:
+                        score_1 = 0
+                    if student.get("score", "-") in ["", "-", "nan", "None", None]:
                         group = 6
-                        rank = "-"
-                    return score_str, rank, note, num_tests, -score_1, score_1, group
-                except:
-                    return "-", "-", "Vắng", 99, 0, 0, 6
+                    elif num_tests == 1:
+                        if score_1 >= 95:
+                            group = 1
+                        elif score_1 >= 80:
+                            group = 2
+                        else:
+                            group = 4
+                    else:
+                        if score_1 >= 80:
+                            group = 3
+                        else:
+                            group = 5
+                return group, num_tests, score_1
+            
+            # Thêm các trường group, num_tests, score_1 cho từng học viên
+            for student in data:
+                group, num_tests, score_1 = calc_group_numtests_score1(student)
+                student["group"] = group
+                student["num_tests"] = num_tests
+                student["score_1"] = score_1
 
-            for row in data:
-                row["score"], row["rank"], row["note"], row["num_tests"], row["sort_score"], row["score_1"], row["group"] = process_student(row)
-
-            def full_sort_key(row):
-                return (
+            # Sắp xếp
+            data_sorted = sorted(
+                data,
+                key=lambda row: (
                     row["group"],
                     row["num_tests"],
-                    -row["score_1"]
+                    -row["score_1"],
+                    row["name"]
                 )
+            )
 
-            data_sorted = sorted(data, key=full_sort_key)
-
+            # Tính lại số lượng nếu chưa có
             if not num_attended or not num_total:
                 num_total = len(data_sorted)
-                num_attended = sum(1 for x in data_sorted if x["score"] not in ["-", ""])
+                if use_5b:
+                    num_attended = sum(1 for x in data_sorted if str(x.get("score_lt", "") or "").strip() not in ["", "-", "nan", "None"] or str(x.get("score_th", "") or "").strip() not in ["", "-", "nan", "None"])
+                else:
+                    num_attended = sum(1 for x in data_sorted if str(x.get("score", "") or "").strip() not in ["", "-", "nan", "None"])
 
-            num_students = len(data_sorted)
-            if num_students <= 14:
-                min_height = 120
-            else:
-                min_height = 90
-
+            # Xử lý ngày
             days = extract_days(time)
             for i, student in enumerate(data_sorted):
                 student["day1"] = days[0] if len(days) > 0 else ""
                 student["day2"] = days[1] if len(days) > 1 else ""
                 student["day3"] = days[2] if len(days) > 2 else ""
 
-            with open("report_template.html", "r", encoding="utf-8") as f:
+            with open(template_file, "r", encoding="utf-8") as f:
                 template_str = f.read()
             template = Template(template_str)
+            min_height = 120 if len(data_sorted) <= 14 else 90
+
+            # Render
             rendered = template.render(
                 students=data_sorted,
                 course_name=course_name,
@@ -507,25 +630,21 @@ with tab4:
                 location=location,
                 num_attended=num_attended,
                 num_total=num_total,
+                class_code=class_info.get("class_code", ""),
                 gv_huong_dan=gv_huong_dan,
                 truong_bo_mon=truong_bo_mon,
                 truong_tt=truong_tt,
                 logo_base64=logo_base64,
-                min_height=min_height,
-                num_students=num_students
+                min_height=min_height
             )
+
+            # Tạo file Excel
             df_baocao = pd.DataFrame(data_sorted)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df_baocao.to_excel(writer, index=False, sheet_name="Báo cáo")
             output.seek(0)
             excel_b64 = base64.b64encode(output.read()).decode()
-            excel_link = f'''
-            <a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{excel_b64}"
-            download="Bao_cao_ket_qua_dao_tao.xlsx"
-            style="display:inline-block; font-size:18px; padding:6px 18px; margin-right:16px; background:#f0f0f0; border-radius:4px; text-decoration:none; border:1px solid #ccc;">
-            📥 Tải báo cáo Excel
-            </a>'''
 
             html_report = f"""
             <div style="text-align:right; margin-bottom:12px;" class="no-print">
@@ -538,28 +657,29 @@ with tab4:
             </div>
             {rendered}
             """
-
             st.subheader("📄 Xem trước báo cáo")
             st.components.v1.html(html_report, height=1200, scrolling=True)
+
+    # Nếu có nút điểm danh, tạo bảng điểm danh
     if diem_danh:
-        ds_hocvien = lop_data["ds_hocvien"]
-        df = ds_hocvien[(ds_hocvien["Mã NV"].str.strip() != "") | (ds_hocvien["Họ tên"].str.strip() != "")]
+        df = ds_hocvien[(ds_hocvien["Mã NV"].astype(str).str.strip() != "") | (ds_hocvien["Họ tên"].astype(str).str.strip() != "")]
         df = df.reset_index(drop=True)
-        days = extract_days(class_info.get("time", ""))
+        days = extract_days(time)
         students = []
         for i, row in df.iterrows():
-            diem = row.get("Điểm", "").strip()
-            check = "X" if diem and diem not in ["", "-", "None"] else "V"
+            diem_lt = str(row.get("Điểm LT", "") or "").strip()
+            check = "X" if diem_lt and diem_lt not in ["", "-", "None"] else "V"
             students.append({
                 "stt": i + 1,
-                "id": row["Mã NV"],
-                "name": row["Họ tên"],
-                "unit": row["Đơn vị"],
+                "id": str(row.get("Mã NV", "") or "").strip(),
+                "name": str(row.get("Họ tên", "") or "").strip(),
+                "unit": str(row.get("Đơn vị", "") or "").strip(),
                 "day1": check if len(days) > 0 else "",
                 "day2": check if len(days) > 1 else "",
                 "day3": check if len(days) > 2 else "",
                 "note": ""
             })
+        students = [s for s in students if s["id"] or s["name"]]
         num_attended = sum(
             1 for s in students if "X" in [s.get("day1", ""), s.get("day2", ""), s.get("day3", "")]
         )
@@ -568,12 +688,13 @@ with tab4:
         template = Template(template_str)
         attendance_html = template.render(
             students=students,
-            course_name=class_info.get("course_name", ""),
-            training_type=class_info.get("training_type", ""),
-            time=class_info.get("time", ""),
-            location=class_info.get("location", ""),
+            course_name=course_name,
+            training_type=training_type,
+            time=time,
+            location=location,
             num_total=len(students),
             num_attended=num_attended,
+            class_code=class_info.get("class_code", ""),
             gv_huong_dan=gv_huong_dan,
             days=days,
             logo_base64=logo_base64,
@@ -586,8 +707,5 @@ with tab4:
         """ + attendance_html
         st.components.v1.html(attendance_html_with_print, height=1000, scrolling=True)
 
-# Ghi lại dữ liệu lớp về session_state (cực kỳ quan trọng)
-st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]] = {
-    "class_info": class_info,
-    "ds_hocvien": ds_hocvien,
-}
+
+

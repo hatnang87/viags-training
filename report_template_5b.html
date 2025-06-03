@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Báo cáo kết quả đào tạo</title>
+    <title>Báo cáo kết quả đào tạo 5b</title>
     <style>
         @page {
             size: A4 portrait;
@@ -126,7 +126,7 @@
       <table style="width:100%; border-collapse:collapse; height:96px;">
         <tr>
           <td style="border-bottom:1px solid black; border-left:none; border-right:none; border-top:none; font-size:18px; padding:4px 8px; text-align:left;">
-            Mã số: V.TMM-F05a
+            Mã số: V.TMM-F05b
           </td>
         </tr>
         <tr>
@@ -157,10 +157,12 @@
   <div><span style="font-weight:bold;">- Loại hình/hình thức đào tạo:</span> {{ training_type }}</div>
   <div><span style="font-weight:bold;">- Thời gian:</span> {{ time }}</div>
   <div><span style="font-weight:bold;">- Địa điểm:</span> {{ location }}</div>
-  <div><span style="font-weight:bold;">- Số học viên tham dự/tổng số học viên:</span> {{ num_attended }} / {{ num_total }}</div>
+  <div><span style="font-weight:bold;">- Số học viên tham dự/tổng số học viên:</span> {{ num_attended }}/{{ num_total }}{% if class_code %} ({{ class_code }}){% endif %}
+
+</div>
 </div>
 
-<!-- BẢNG KẾT QUẢ -->
+<!-- BẢNG KẾT QUẢ 5b -->
 <table class="result-table" style="width:100%; min-height: {{ min_height }}mm;">
   <style>
     th, td {
@@ -169,23 +171,30 @@
   </style>
   <thead>
     <tr>
-      <th style="width:5%;">STT</th>
-      <th style="width:12%;">Mã NV</th>
-      <th>Họ tên</th>
-      <th>Đơn vị</th>
-      <th>Điểm</th>
-      <th>Xếp loại</th>
-      <th>Ghi chú</th>
+      <th rowspan="2" style="width:5%;">Stt</th>
+      <th rowspan="2" style="width:80px; max-width:80px; word-break:break-all; white-space:normal;">Mã<br>nhân viên</th>
+      <th rowspan="2" style="width:30%;">Họ tên</th>
+      <th rowspan="2">Đơn vị</th>
+      <th colspan="3">Điểm</th>
+      <th rowspan="2">Xếp loại</th>
+      <th rowspan="2">Ghi chú</th>
+    </tr>
+    <tr>
+      <th style="width:8%;">LT</th>
+      <th style="width:8%;">TH<br>(x2)</th>
+      <th style="width:8%;">Trung<br>bình</th>
     </tr>
   </thead>
   <tbody>
     {% for student in students[:-1] %}
     <tr>
       <td>{{ loop.index }}</td>
-      <td>{{ student.id }}</td>
+      <td style="width:80px; max-width:80px; word-break:break-all; white-space:normal;">{{ student.id }}</td>
       <td style="text-align:left; padding-left:4px;">{{ student.name }}</td>
       <td>{{ student.unit }}</td>
-      <td>{{ student.score }}</td>
+      <td>{{ student.score_lt }}</td>
+      <td>{{ student.score_th }}</td>
+      <td>{{ student.score_tb }}</td>
       <td>{{ student.rank }}</td>
       <td style="text-align:left; padding-left:4px;">{{ student.note }}</td>
     </tr>
@@ -195,15 +204,17 @@
   <tbody class="footer-signature" style="page-break-inside: avoid;">
     <tr>
       <td>{{ students|length }}</td>
-      <td>{{ students[-1].id }}</td>
+      <td style="width:80px; max-width:80px; word-break:break-all; white-space:normal;">{{ students[-1].id }}</td>
       <td style="text-align:left; padding-left:4px;">{{ students[-1].name }}</td>
       <td>{{ students[-1].unit }}</td>
-      <td>{{ students[-1].score }}</td>
+      <td>{{ students[-1].score_lt }}</td>
+      <td>{{ students[-1].score_th }}</td>
+      <td>{{ students[-1].score_tb }}</td>
       <td>{{ students[-1].rank }}</td>
       <td style="text-align:left; padding-left:4px;">{{ students[-1].note }}</td>
     </tr>
     <tr>
-      <td colspan="7" style="padding:0; border:none;">
+      <td colspan="9" style="padding:0; border:none;">
         <table class="sign-table signature" style="margin-top:12px; width:100%;">
           <tr>
             <td style="width: 33%; text-align: left;">
@@ -231,6 +242,4 @@
 
 </body>
 </html>
-<!-- END OF REPORT TEMPLATE -->
-<!-- This is a template for generating training result reports. It uses Jinja2 templating syntax to dynamically insert data into the HTML structure. -->
-<!-- The template includes sections for the header, course information, results table, and signatures. -->
+<!-- END OF REPORT -->
