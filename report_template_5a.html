@@ -113,7 +113,7 @@
 {% endif %}
 
 <!-- Trang 1: Luôn có danh sách học viên -->
-<table class="result-table" style="width:100%; border-right:1px solid black; border-bottom:1px solid black;">
+<table class="result-table" style="width:100%; border-right:1px solid black;">
   <style>
     th, td {
       height: {{ row_height }}px;
@@ -151,7 +151,7 @@
 {% if students_trang2 %}
 <!-- Trang 2: page-break trước bảng -->
 <div style="page-break-before: always;"></div>
-<table class="result-table" style="width:100%; border-right:1px solid black; border-bottom:1px solid black;">
+<table class="result-table" style="width:100%; border-right:1px solid black;">
   <thead>
     <tr>
       <th style="width:5%;">STT</th>
@@ -178,17 +178,17 @@
   </tbody>
 </table>
 <!-- Bảng ký tên ở cuối trang 2 -->
-<table class="sign-table signature" style="margin-top:12px; width:100%; border-top:none;page-break-inside: avoid; break-inside: avoid;">
+<table class="sign-table signature" style="margin-top:0px; width:100%; border-top:none; page-break-inside: avoid; break-inside: avoid;">
   <tr>
-    <td style="width: 33%; text-align: left;">
+    <td style="width: 33%; text-align: left; border-top:none;">
       <div class="sign-label">Giáo viên hướng dẫn:</div>
       Họ tên: {{ gv_huong_dan|default('Nguyễn Đức Nghĩa') }}<br>Ngày:
     </td>
-    <td style="width: 33%; text-align: left;">
+    <td style="width: 33%; text-align: left; border-top:none;">
       <div class="sign-label">Trưởng bộ môn:</div>
       Họ tên: {{ truong_bo_mon|default('Ngô Trung Thành') }}<br>Ngày:
     </td>
-    <td style="width: 33%; text-align: left;">
+    <td style="width: 33%; text-align: left; border-top:none;">
       <div class="sign-label">Trưởng TTĐT:</div>
       Họ tên: {{ truong_tt|default('Nguyễn Chí Kiên') }}<br>Ngày:
     </td>
@@ -196,17 +196,17 @@
 </table>
 {% else %}
 <!-- Nếu chỉ có 21 học viên trở lại, ký tên ngay dưới bảng -->
-<table class="sign-table signature" style="margin-top:12px; width:100%; border-top:none;page-break-inside: avoid; break-inside: avoid;">
+<table class="sign-table signature" style="margin-top:0px; width:100%; border-top:none; page-break-inside: avoid; break-inside: avoid;">
   <tr>
-    <td style="width: 33%; text-align: left;">
+    <td style="width: 33%; text-align: left; border-top:none;">
       <div class="sign-label">Giáo viên hướng dẫn:</div>
       Họ tên: {{ gv_huong_dan|default('Nguyễn Đức Nghĩa') }}<br>Ngày:
     </td>
-    <td style="width: 33%; text-align: left;">
+    <td style="width: 33%; text-align: left; border-top:none;">
       <div class="sign-label">Trưởng bộ môn:</div>
       Họ tên: {{ truong_bo_mon|default('Ngô Trung Thành') }}<br>Ngày:
     </td>
-    <td style="width: 33%; text-align: left;">
+    <td style="width: 33%; text-align: left; border-top:none;">
       <div class="sign-label">Trưởng TTĐT:</div>
       Họ tên: {{ truong_tt|default('Nguyễn Chí Kiên') }}<br>Ngày:
     </td>
