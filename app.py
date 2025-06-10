@@ -732,16 +732,31 @@ with tab4:
                 student["group"] = group
                 student["num_tests"] = num_tests
                 student["score_1"] = score_1
-
+                # Lấy điểm cuối cùng thực sự
+                if "score_lt" in student:
+                    scores = [float(x) for x in str(student.get("score_lt", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
+                elif "score" in student:
+                    scores = [float(x) for x in str(student.get("score", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
+                else:
+                    scores = []
+                student["last_score"] = scores[-1] if scores else 0
             data_sorted = sorted(
                 data,
                 key=lambda row: (
                     row["group"],
-                    row["num_tests"],
-                    -row["score_1"],
+                    row["num_tests"],         # Số lần thi ít hơn xếp trước
+                    -row["last_score"],       # Điểm cuối cùng cao hơn xếp trước
                     row["name"]
                 )
             )
+            num_total = len(data_sorted)
+            max_rows_per_page = 21  # Số hàng tối đa trên mỗi trang
+            if num_total > max_rows_per_page:
+                students_trang1 = data_sorted[:max_rows_per_page]
+                students_trang2 = data_sorted[max_rows_per_page:]
+            else:
+                students_trang1 = data_sorted
+                students_trang2 = []
 
             # Tính lại số lượng nếu chưa có
             if not num_attended or not num_total:
@@ -765,6 +780,8 @@ with tab4:
 
             rendered = template.render(
                 students=data_sorted,
+                students_trang1=students_trang1,
+                students_trang2=students_trang2,
                 course_name=course_name,
                 training_type=training_type,
                 time=time,
@@ -776,16 +793,52 @@ with tab4:
                 truong_bo_mon=truong_bo_mon,
                 truong_tt=truong_tt,
                 logo_base64=logo_base64,
-                min_height=min_height
+                min_height=min_height,
+                max_rows_per_page=max_rows_per_page
             )
+            # Tìm số lần thi lớn nhất
+            max_tests = 1
+            for s in data_sorted:
+                if "score_lt" in s:
+                    scores = [x for x in str(s.get("score_lt", "")) .split("/") if x.strip().isdigit()]
+                else:
+                    scores = [x for x in str(s.get("score", "")) .split("/") if x.strip().isdigit()]
+                if len(scores) > max_tests:
+                    max_tests = len(scores)
 
+            # Thêm cột điểm từng lần thi
+            for s in data_sorted:
+                if "score_lt" in s:
+                    scores = [x for x in str(s.get("score_lt", "")) .split("/") if x.strip().isdigit()]
+                else:
+                    scores = [x for x in str(s.get("score", "")) .split("/") if x.strip().isdigit()]
+                for i in range(max_tests):
+                    s[f"Điểm lần {i+1}"] = scores[i] if i < len(scores) else ""
+            
             # Xuất Excel đúng tên mã hóa
             file_basename = ma_hoa_ten_lop(course_name, time)
             file_excel = f"{file_basename}.xlsx"
             df_baocao = pd.DataFrame(data_sorted)
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_baocao.to_excel(writer, index=False, sheet_name="Báo cáo")
+                # Ghi bảng học viên từ dòng 7 (index=6) để phía trên trống cho info lớp
+                df_baocao.to_excel(writer, index=False, sheet_name="Báo cáo", startrow=6)
+                workbook  = writer.book
+                worksheet = writer.sheets["Báo cáo"]
+
+                # Ghi thông tin lớp học vào các dòng đầu
+                worksheet.write("A1", "Môn/Khóa học:")
+                worksheet.write("B1", course_name)
+                worksheet.write("A2", "Loại hình/hình thức đào tạo:")
+                worksheet.write("B2", training_type)
+                worksheet.write("A3", "Thời gian:")
+                worksheet.write("B3", time)
+                worksheet.write("A4", "Địa điểm:")
+                worksheet.write("B4", location)
+                worksheet.write("A5", "Số học viên tham dự/tổng số học viên:")
+                worksheet.write("B5", f"{num_attended}/{num_total}")
+                worksheet.write("A6", "Mã lớp/Ghi chú:")
+                worksheet.write("B6", class_info.get("class_code", ""))
             output.seek(0)
             excel_b64 = base64.b64encode(output.read()).decode()
 
@@ -841,7 +894,8 @@ with tab4:
             gv_huong_dan=gv_huong_dan,
             days=days,
             logo_base64=logo_base64,
-            min_height=120 if len(students) <= 14 else 90
+            min_height=120 if len(students) <= 14 else 90,
+            max_rows_per_page=23
         )
         attendance_html_with_print = """
         <div style="text-align:right; margin-bottom:12px;" class="no-print">
