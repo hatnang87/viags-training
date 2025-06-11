@@ -685,46 +685,28 @@ with tab4:
 
             # Sắp xếp
             def calc_group_numtests_score1(student):
+                # Ưu tiên xếp loại trước: Xuất sắc < Đạt < Không đạt < Vắng
+                rank = student.get("rank", "-")
+                if rank == "Xuất sắc":
+                    group = 1
+                elif rank == "Đạt":
+                    group = 2
+                elif rank == "Không đạt":
+                    group = 3
+                else:
+                    group = 4  # Vắng hoặc "-"
+                num_tests = student.get("num_tests", 1)
+                # Điểm cuối cùng để so sánh trong cùng group
                 if "score_tb" in student:
                     try:
                         score_1 = float(student.get("score_tb", 0))
                     except:
                         score_1 = 0
-                    num_tests = student.get("num_tests", 1)
-                    if student.get("score_lt", "-") == "-" and student.get("score_th", "-") == "-":
-                        group = 6
-                    elif num_tests == 1:
-                        if score_1 >= 95:
-                            group = 1
-                        elif score_1 >= 80:
-                            group = 2
-                        else:
-                            group = 4
-                    else:
-                        if score_1 >= 80:
-                            group = 3
-                        else:
-                            group = 5
                 else:
                     try:
                         score_1 = float(student.get("score", 0))
                     except:
                         score_1 = 0
-                    num_tests = student.get("num_tests", 1)
-                    if student.get("score", "-") in ["", "-", "nan", "None", None]:
-                        group = 6
-                    elif num_tests == 1:
-                        if score_1 >= 95:
-                            group = 1
-                        elif score_1 >= 80:
-                            group = 2
-                        else:
-                            group = 4
-                    else:
-                        if score_1 >= 80:
-                            group = 3
-                        else:
-                            group = 5
                 return group, num_tests, score_1
 
             for student in data:
@@ -732,7 +714,7 @@ with tab4:
                 student["group"] = group
                 student["num_tests"] = num_tests
                 student["score_1"] = score_1
-                # Lấy điểm cuối cùng thực sự
+                # Lấy list điểm từng lần thi (float, từ trái sang phải)
                 if "score_lt" in student:
                     scores = [float(x) for x in str(student.get("score_lt", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
                 elif "score" in student:
@@ -740,12 +722,13 @@ with tab4:
                 else:
                     scores = []
                 student["last_score"] = scores[-1] if scores else 0
+                student["score_list"] = scores  # <-- thêm dòng này
             data_sorted = sorted(
                 data,
                 key=lambda row: (
-                    row["group"],
-                    row["num_tests"],         # Số lần thi ít hơn xếp trước
-                    -row["last_score"],       # Điểm cuối cùng cao hơn xếp trước
+                    row["group"],                   # Ưu tiên xếp loại
+                    row["num_tests"],               # Số lần thi ít hơn xếp trước
+                    tuple([-x for x in row.get("score_list", [0])[::-1]]),  # So sánh điểm từng lần từ cuối về đầu (giảm dần)
                     row["name"]
                 )
             )

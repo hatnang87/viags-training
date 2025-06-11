@@ -25,8 +25,10 @@
         .signature { margin-top: 12px; }
         .result-table, .result-table th, .result-table td { border: 1px solid black; border-collapse: collapse; }
         .result-table { border-right: 1px solid black; border-bottom: 1px solid black; }
+        .result-table:last-of-type, .result-table[style*="border-bottom:none"] { border-bottom: none !important; }
         .sign-table, .sign-table td { border: 1px solid black; border-collapse: collapse; }
         .sign-table { border-top: none !important; }
+        .sign-table tr:first-child td { border-top: none !important;}
         .result-table tr { page-break-inside: avoid !important; break-inside: avoid !important; }
         @media print {
             button, .no-print, .stApp, .st-emotion-cache-1kyxreq, .st-emotion-cache-1avcm0n { display: none !important; }
@@ -36,7 +38,7 @@
             .result-table, .result-table th, .result-table td { border: 1px solid black !important; border-collapse: collapse; }
             .result-table { border-right: 1px solid black !important; border-bottom: 1px solid black !important; }
             .sign-table, .sign-table td { border: 1px solid black !important; border-collapse: collapse; }
-            .sign-table { border-top: none !important; }
+            .sign-table { border-top: none !important; border-top-width: 0 !important;}
         }
     </style>
 </head>
@@ -113,7 +115,7 @@
 {% endif %}
 
 <!-- Trang 1: Luôn có danh sách học viên -->
-<table class="result-table" style="width:100%; border-right:1px solid black;">
+<table class="result-table" style="width:100%; border-right:1px solid black; border-bottom:none;">
   <style>
     th, td {
       height: {{ row_height }}px;
@@ -127,9 +129,9 @@
       <th style="width:5%;">STT</th>
       <th style="width:12%;">Mã NV</th>
       <th>Họ tên</th>
-      <th>Đơn vị</th>
+      <th style="width:15%;">Đơn vị</th>
       <th>Điểm</th>
-      <th>Xếp loại</th>
+      <th style="width:12%;">Xếp loại</th>
       <th>Ghi chú</th>
     </tr>
   </thead>
@@ -157,15 +159,15 @@
       <th style="width:5%;">STT</th>
       <th style="width:12%;">Mã NV</th>
       <th>Họ tên</th>
-      <th>Đơn vị</th>
+      <th style="width:15%;">Đơn vị</th>
       <th>Điểm</th>
-      <th>Xếp loại</th>
+      <th style="width:12%;">Xếp loại</th>
       <th>Ghi chú</th>
     </tr>
   </thead>
   <tbody>
     {% for student in students_trang2 %}
-    <tr>
+    <tr {% if loop.last %}style="border-bottom: none !important;"{% endif %}>
       <td>{{ loop.index + max_rows_per_page }}</td>
       <td style="width:80px; max-width:80px; word-break:break-all; white-space:normal;">{{ student.id }}</td>
       <td style="text-align:left; padding-left:4px;">{{ student.name }}</td>
