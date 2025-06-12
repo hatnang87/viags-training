@@ -9,11 +9,10 @@ from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
 import base64
 from jinja2 import Template
-from streamlit_js_eval import streamlit_js_eval
+
 
 
 FOLDER_ID_DEFAULT = "1AH34e-4R2gsNzX9q1lCBq8yoTIg3uCbr"
-SERVICE_ACCOUNT_FILE = "service_account.json"
 SCOPES = [
     'https://www.googleapis.com/auth/drive.readonly'
 ]
@@ -24,8 +23,9 @@ st.title("📋 Quản lý lớp học - VIAGS")
 # ========== Google Drive API sử dụng Service Account ==========
 @st.cache_resource
 def get_drive_service():
-    creds = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+    credentials_dict = st.secrets["gcp_service_account"]
+    creds = service_account.Credentials.from_service_account_info(
+        credentials_dict, scopes=SCOPES)
     return build('drive', 'v3', credentials=creds)
 drive_service = get_drive_service()
 
@@ -1064,17 +1064,3 @@ with tab4:
         """ + attendance_html
         st.components.v1.html(attendance_html_with_print, height=1000, scrolling=True)
 
-# ========== Thêm nút về đầu trang ==========
-st.markdown(
-    """
-    <a id="scroll-top-btn" style="position:fixed;bottom:24px;right:24px;z-index:1000;font-size:2rem;cursor:pointer;" title="Về đầu trang">⬆️</a>
-    """,
-    unsafe_allow_html=True
-)
-js_code = """
-document.getElementById("scroll-top-btn").onclick = function(e) {
-    e.preventDefault();
-    window.parent.scrollTo(0, 0);
-}
-"""
-streamlit_js_eval(js_expressions=js_code, key="scroll_top_js")
