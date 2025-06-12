@@ -1,26 +1,58 @@
 import streamlit as st
 import pandas as pd
-from jinja2 import Template
-import base64
 import re
 import io
 import unicodedata
 import openpyxl
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+from google.oauth2 import service_account
+import base64
+from jinja2 import Template
+from streamlit_js_eval import streamlit_js_eval
+
+
+FOLDER_ID_DEFAULT = "1AH34e-4R2gsNzX9q1lCBq8yoTIg3uCbr"
+SERVICE_ACCOUNT_FILE = "service_account.json"
+SCOPES = [
+    'https://www.googleapis.com/auth/drive.readonly'
+]
 
 st.set_page_config(page_title="Báo cáo kết quả đào tạo - VIAGS", layout="wide")
-
 st.title("📋 Quản lý lớp học - VIAGS")
 
-# Hàm chuẩn hóa thời gian
+# ========== Google Drive API sử dụng Service Account ==========
+@st.cache_resource
+def get_drive_service():
+    creds = service_account.Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+    return build('drive', 'v3', credentials=creds)
+drive_service = get_drive_service()
+
+def list_excel_files(folder_id):
+    results = drive_service.files().list(
+        q=f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'",
+        fields="files(id, name)").execute()
+    files = results.get('files', [])
+    return [(file['name'], file['id']) for file in files]
+
+def download_excel_from_drive(file_id):
+    request = drive_service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    fh.seek(0)
+    return fh
+
 def chuan_hoa_thoi_gian(time_str):
-    # 26-27/5/2025 -> 26,27/5/2025
     match = re.match(r"(\d{1,2})-(\d{1,2})/(\d{1,2}/\d{4})", str(time_str))
     if match:
         ngay1, ngay2, thangnam = match.groups()
         return f"{ngay1},{ngay2}/{thangnam}"
     return str(time_str).strip()
 
-# Hàm loại bỏ dấu tiếng Việt và chuẩn hóa chuỗi
 def remove_vietnamese_accents(s):
     if not isinstance(s, str):
         return ""
@@ -32,15 +64,12 @@ def remove_vietnamese_accents(s):
 def normalize_name(s):
     s = str(s) if s is not None else ""
     s = s.split('-')[0].strip()
-    # Bổ sung thay thế Đ/đ thành D/d
     s = s.replace('Đ', 'D').replace('đ', 'd')
-    import unicodedata, re
     s = unicodedata.normalize('NFD', s)
     s = ''.join(c for c in s if unicodedata.category(c) != 'Mn')
     s = re.sub(r'\s+', '', s)
     s = s.lower()
     return s
-
 
 def strip_accents(s):
     if not isinstance(s, str):
@@ -49,20 +78,172 @@ def strip_accents(s):
     s = s.replace('Đ', 'D').replace('đ', 'd')
     return ''.join(c for c in s if unicodedata.category(c) != 'Mn')
 
+def round_score_str(score_str):
+    # Làm tròn từng điểm trong chuỗi, ví dụ "8/9.5/7.5" -> "8/10/8"
+    scores = []
+    for s in str(score_str).replace(",", ".").split("/"):
+        try:
+            s_clean = re.sub(r"[^\d.]", "", s)
+            if s_clean == "":
+                continue
+            f = float(s_clean)
+            scores.append(str(int(f + 0.5)))
+        except:
+            pass
+    return "/".join(scores)
 
-# ========== Quản lý nhiều lớp ==========
-if "danh_sach_lop" not in st.session_state:
-    st.session_state["danh_sach_lop"] = {}
-if "ten_lop_hien_tai" not in st.session_state:
-    st.session_state["ten_lop_hien_tai"] = ""
-if "hien_nhap_excel" not in st.session_state:
-    st.session_state["hien_nhap_excel"] = False
+# ========== SESSION INIT ==========
+for key, value in [
+    ("danh_sach_lop", {}),
+    ("ten_lop_hien_tai", ""),
+    ("hien_nhap_excel", False)
+]:
+    if key not in st.session_state:
+        st.session_state[key] = value
 
-# Sắp xếp danh sách lớp theo thứ tự tiếng Việt
+st.warning("💡 Mỗi lần mở/reload app sẽ không có dữ liệu. Hãy tải danh sách lớp từ Google Drive hoặc nhập lại từ file!")
 
+# ========== NHẬP NHIỀU LỚP (ĐÃ TÁCH HÀM) ==========
+
+def nhap_lop_tu_file(file_excel):
+    wb = openpyxl.load_workbook(file_excel, data_only=True)
+    so_lop_them = 0
+    lop_moi_vua_them = None
+    log_sheets = []
+    for sheetname in wb.sheetnames:
+        sheet_check = remove_vietnamese_accents(sheetname)
+        if sheet_check == "mucluc":
+            log_sheets.append(f"⏩ Bỏ qua sheet '{sheetname}' (Mục lục).")
+            continue
+
+        ws = wb[sheetname]
+        ten_lop_goc = ws["D7"].value
+        if not ten_lop_goc or str(ten_lop_goc).strip() == "":
+            log_sheets.append(f"❌ Sheet '{sheetname}': Thiếu tên lớp ở D7.")
+            continue
+
+        thoi_gian = ws["D9"].value or ""
+        thoi_gian_chuan = chuan_hoa_thoi_gian(thoi_gian)
+        ten_lop = f"{str(ten_lop_goc).strip()}_{str(thoi_gian).strip()}"
+        orig_ten_lop = ten_lop
+        cnt = 1
+        while ten_lop in st.session_state["danh_sach_lop"]:
+            ten_lop = f"{orig_ten_lop}_{cnt}"
+            cnt += 1
+
+        loai_hinh_full = ws["B8"].value or ""
+        if ":" in str(loai_hinh_full):
+            loai_hinh = str(loai_hinh_full).split(":", 1)[-1].strip()
+        else:
+            loai_hinh = str(loai_hinh_full).strip()
+        dia_diem = ws["D10"].value or ""
+
+        data = []
+        row = 14
+        while True:
+            ma_nv = ws[f"C{row}"].value
+            ho_ten = ws[f"D{row}"].value
+            don_vi = ws[f"E{row}"].value
+            if (not ma_nv or str(ma_nv).strip() == "") and (not ho_ten or str(ho_ten).strip() == ""):
+                break
+            if any((
+                (isinstance(ma_nv, str) and ("trưởng" in ma_nv.lower() or "trung tâm" in ma_nv.lower() or "ký tên" in ma_nv.lower())),
+                (isinstance(ho_ten, str) and ("trưởng" in ho_ten.lower() or "trung tâm" in ho_ten.lower() or "ký tên" in ho_ten.lower())),
+                (isinstance(don_vi, str) and ("trưởng" in don_vi.lower() or "trung tâm" in don_vi.lower() or "ký tên" in don_vi.lower()))
+            )):
+                break
+            if (ma_nv and str(ma_nv).strip() != "") or (ho_ten and str(ho_ten).strip() != ""):
+                data.append({
+                    "Mã NV": str(ma_nv or "").strip(),
+                    "Họ tên": str(ho_ten or "").strip(),
+                    "Đơn vị": str(don_vi or "").strip(),
+                    "Điểm": ""
+                })
+            row += 1
+
+        if len(data) > 0:
+            df = pd.DataFrame(data)
+            st.session_state["danh_sach_lop"][ten_lop] = {
+                "class_info": {
+                    "course_name": ten_lop_goc,
+                    "training_type": loai_hinh,
+                    "time": thoi_gian_chuan,
+                    "location": dia_diem,
+                    "num_attended": "",
+                    "num_total": "",
+                },
+                "ds_hocvien": df
+            }
+            lop_moi_vua_them = ten_lop
+            so_lop_them += 1
+            log_sheets.append(f"✅ Sheet '{sheetname}' ({ten_lop_goc}) đã nhập {len(data)} học viên (tên lớp: {ten_lop})")
+        else:
+            log_sheets.append(f"❌ Sheet '{sheetname}': Không có học viên ở C14-E14 trở đi.")
+
+    if so_lop_them:
+        st.session_state["ten_lop_hien_tai"] = lop_moi_vua_them
+        cur_lop_data = st.session_state["danh_sach_lop"][lop_moi_vua_them]
+        st.session_state["class_info_tmp"] = cur_lop_data.get("class_info", {}).copy()
+        st.session_state["ds_hocvien_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
+        st.session_state["diem_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
+        st.success(f"Đã nhập xong {so_lop_them} lớp! Vào phần 'Chọn lớp' để kiểm tra.")
+        for log in log_sheets:
+            st.write(log)
+        st.session_state["hien_nhap_excel"] = False
+        st.rerun()
+    else:
+        for log in log_sheets:
+            st.write(log)
+        st.warning("Không sheet nào hợp lệ (phải có D7 là tên lớp và học viên từ C14-E14).")
+
+def nhap_nhieu_lop_excel_modal():
+    tab_drive, tab_file = st.tabs(["Từ Google Drive", "Từ máy tính"])
+    # --- Tab 1: Google Drive ---
+    with tab_drive:
+        folder_id = FOLDER_ID_DEFAULT
+        excel_files = list_excel_files(folder_id)
+        file_map = {f[0]: f[1] for f in excel_files}
+        if excel_files:
+            selected_file = st.selectbox("Chọn file Excel danh sách lớp", list(file_map.keys()), key="select_drive_tab")
+            if st.button("Tải và nhập từ Drive", key="btn_drive_import_tabdrive" + str(st.session_state.get("drive_tab_version", 0))):
+                excel_bytes = download_excel_from_drive(file_map[selected_file])
+                nhap_lop_tu_file(excel_bytes)
+                # Reset key lần tiếp theo (chống đúp)
+                st.session_state["drive_tab_version"] = st.session_state.get("drive_tab_version", 0) + 1
+                st.session_state["hien_nhap_excel"] = False
+                st.rerun()
+        else:
+            st.info("Không có file Excel nào trong folder Drive này.")
+    # --- Tab 2: Máy tính ---
+    with tab_file:
+        file_excel = st.file_uploader(
+            "Chọn file Excel danh sách lớp",
+            type=["xlsx"],
+            key="multi_class_uploader_import_tabfile" + str(st.session_state.get("file_tabfile_version", 0))
+        )
+        col_excel = st.columns([2, 1])
+        with col_excel[0]:
+            nhap_excel = st.button("Nhập các lớp vào hệ thống", key="btn_nhap_excel_tabfile" + str(st.session_state.get("file_tabfile_version", 0)))
+        with col_excel[1]:
+            huy_excel = st.button("❌ Đóng nhập nhiều lớp", key="btn_huy_excel_tabfile" + str(st.session_state.get("file_tabfile_version", 0)))
+        if huy_excel:
+            st.session_state["hien_nhap_excel"] = False
+            # Reset key lần tiếp theo (chống đúp)
+            st.session_state["file_tabfile_version"] = st.session_state.get("file_tabfile_version", 0) + 1
+            st.rerun()
+        if file_excel is not None and nhap_excel:
+            nhap_lop_tu_file(file_excel)
+            st.session_state["file_tabfile_version"] = st.session_state.get("file_tabfile_version", 0) + 1
+            st.session_state["hien_nhap_excel"] = False
+            st.rerun()
+   
+# ========== NHẬP NHIỀU LỚP LUÔN HIỆN ==========
+with st.expander("📥 Nhập nhiều lớp từ file Excel (mỗi sheet 1 lớp)", expanded=False):
+    nhap_nhieu_lop_excel_modal()
+
+# ========== QUẢN LÝ NHIỀU LỚP ==========
 ds_lop = sorted(list(st.session_state["danh_sach_lop"].keys()), key=strip_accents)
-
-chuc_nang = st.columns([5, 2, 2, 3])
+chuc_nang = st.columns([5, 2, 1, 1])
 with chuc_nang[0]:
     ten_lop = st.selectbox(
         "🗂️ Chọn lớp",
@@ -71,135 +252,17 @@ with chuc_nang[0]:
     )
 with chuc_nang[1]:
     ten_moi = st.text_input("Tên lớp mới", value="", placeholder="VD: ATHK 01/2025")
-    tao_lop = st.button("➕ Tạo lớp mới")
 with chuc_nang[2]:
-    if ds_lop and st.button("🗑️ Xóa lớp đang chọn"):
+    tao_lop = st.button("➕ Tạo lớp mới", use_container_width=True)
+with chuc_nang[3]:
+    if ds_lop and st.button("🗑️ Xóa lớp đang chọn", use_container_width=True):
         if st.session_state["ten_lop_hien_tai"] in st.session_state["danh_sach_lop"]:
             del st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]
             st.session_state["ten_lop_hien_tai"] = ds_lop[0] if ds_lop else ""
-with chuc_nang[3]:
-    if st.button("📥 Nhập nhiều lớp từ Excel", key="open_excel_modal"):
-        st.session_state["hien_nhap_excel"] = True
+        st.success("Lớp đã được xóa thành công!")
 
 
-# Hiển thị khối nhập file Excel khi bấm nút (giả popup)
-if st.session_state.get("hien_nhap_excel", False):
-    with st.expander("📥 Nhập nhiều lớp từ file Excel (mỗi sheet 1 lớp)", expanded=True):
-        file_excel = st.file_uploader(
-            "Chọn file Excel danh sách lớp",
-            type=["xlsx"],
-            key="multi_class_uploader_import"
-        )
-        col_excel = st.columns([2, 1])
-        with col_excel[0]:
-            nhap_excel = st.button("Nhập các lớp vào hệ thống", key="btn_nhap_excel")
-        with col_excel[1]:
-            huy_excel = st.button("❌ Đóng nhập nhiều lớp", key="btn_huy_excel")
-        # Xử lý nhập và đóng form
-        if huy_excel:
-            st.session_state["hien_nhap_excel"] = False
-            st.rerun()
-
-    if file_excel is not None and nhap_excel:
-        wb = openpyxl.load_workbook(file_excel, data_only=True)
-        so_lop_them = 0
-        lop_moi_vua_them = None
-        log_sheets = []
-
-        for sheetname in wb.sheetnames:
-            sheet_check = remove_vietnamese_accents(sheetname)
-            if sheet_check == "mucluc":
-                log_sheets.append(f"⏩ Bỏ qua sheet '{sheetname}' (Mục lục).")
-                continue
-
-            ws = wb[sheetname]
-            ten_lop_goc = ws["D7"].value
-            if not ten_lop_goc or str(ten_lop_goc).strip() == "":
-                log_sheets.append(f"❌ Sheet '{sheetname}': Thiếu tên lớp ở D7.")
-                continue
-
-            thoi_gian = ws["D9"].value or ""
-            thoi_gian_chuan = chuan_hoa_thoi_gian(thoi_gian)
-            # Tạo tên lớp như code bố đang dùng
-            ten_lop = f"{str(ten_lop_goc).strip()}_{str(thoi_gian).strip()}"
-            orig_ten_lop = ten_lop
-            cnt = 1
-            while ten_lop in st.session_state["danh_sach_lop"]:
-                ten_lop = f"{orig_ten_lop}_{cnt}"
-                cnt += 1
-
-            # Loại hình/hình thức đào tạo
-            loai_hinh_full = ws["B8"].value or ""
-            if ":" in str(loai_hinh_full):
-                loai_hinh = str(loai_hinh_full).split(":", 1)[-1].strip()
-            else:
-                loai_hinh = str(loai_hinh_full).strip()
-            dia_diem = ws["D10"].value or ""
-
-            # Đọc danh sách học viên từ dòng 14 trở đi (C14 - Mã NV, D14 - Họ tên, E14 - Đơn vị)
-            data = []
-            row = 14
-            while True:
-                ma_nv = ws[f"C{row}"].value
-                ho_ten = ws[f"D{row}"].value
-                don_vi = ws[f"E{row}"].value
-                # Nếu cả 3 ô đều trống thì dừng
-                if (not ma_nv or str(ma_nv).strip() == "") and (not ho_ten or str(ho_ten).strip() == ""):
-                    break
-                # Nếu 1 trong các ô chứa từ khóa "Trưởng", "Trung tâm", "Ký tên" thì dừng
-                if any((
-                    (isinstance(ma_nv, str) and ("trưởng" in ma_nv.lower() or "trung tâm" in ma_nv.lower() or "ký tên" in ma_nv.lower())),
-                    (isinstance(ho_ten, str) and ("trưởng" in ho_ten.lower() or "trung tâm" in ho_ten.lower() or "ký tên" in ho_ten.lower())),
-                    (isinstance(don_vi, str) and ("trưởng" in don_vi.lower() or "trung tâm" in don_vi.lower() or "ký tên" in don_vi.lower()))
-                )):
-                    break
-                if (ma_nv and str(ma_nv).strip() != "") or (ho_ten and str(ho_ten).strip() != ""):
-                    data.append({
-                        "Mã NV": str(ma_nv or "").strip(),
-                        "Họ tên": str(ho_ten or "").strip(),
-                        "Đơn vị": str(don_vi or "").strip(),
-                        "Điểm": ""
-                    })
-                row += 1
-
-
-            if len(data) > 0:
-                df = pd.DataFrame(data)
-                st.session_state["danh_sach_lop"][ten_lop] = {
-                    "class_info": {
-                        "course_name": ten_lop_goc,
-                        "training_type": loai_hinh,
-                        "time": thoi_gian_chuan,
-                        "location": dia_diem,
-                        "num_attended": "",
-                        "num_total": "",
-                    },
-                    "ds_hocvien": df
-                }
-                lop_moi_vua_them = ten_lop
-                so_lop_them += 1
-                log_sheets.append(f"✅ Sheet '{sheetname}' ({ten_lop_goc}) đã nhập {len(data)} học viên (tên lớp: {ten_lop})")
-            else:
-                log_sheets.append(f"❌ Sheet '{sheetname}': Không có học viên ở C14-E14 trở đi.")
-
-        if so_lop_them:
-            st.session_state["ten_lop_hien_tai"] = lop_moi_vua_them
-                # RESET biến tạm về đúng lớp vừa nhập cuối cùng
-            cur_lop_data = st.session_state["danh_sach_lop"][lop_moi_vua_them]
-            st.session_state["class_info_tmp"] = cur_lop_data.get("class_info", {}).copy()
-            st.session_state["ds_hocvien_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
-            st.session_state["diem_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
-            st.success(f"Đã nhập xong {so_lop_them} lớp! Vào phần 'Chọn lớp' để kiểm tra.")
-            for log in log_sheets:
-                st.write(log)
-            st.session_state["hien_nhap_excel"] = False
-            st.rerun()
-        else:
-            for log in log_sheets:
-                st.write(log)
-            st.warning("Không tìm thấy sheet nào hợp lệ (phải có D7 là tên lớp và học viên từ C14-E14).")
-
-# Xử lý tạo lớp mới
+# Xử lý tạo lớp mới hoặc đổi lớp
 if tao_lop and ten_moi.strip():
     if ten_moi not in st.session_state["danh_sach_lop"]:
         st.session_state["danh_sach_lop"][ten_moi] = {
@@ -207,7 +270,7 @@ if tao_lop and ten_moi.strip():
                 "course_name": "",
                 "training_type": "",
                 "time": "",
-                "location": "", 
+                "location": "",
                 "num_attended": "",
                 "num_total": "",
             },
@@ -219,19 +282,15 @@ if tao_lop and ten_moi.strip():
             }),
         }
         st.session_state["ten_lop_hien_tai"] = ten_moi
-
-        # RESET các biến tạm cho lớp mới tạo
         cur_lop_data = st.session_state["danh_sach_lop"][ten_moi]
         st.session_state["class_info_tmp"] = cur_lop_data.get("class_info", {}).copy()
         st.session_state["ds_hocvien_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
         st.session_state["diem_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
-
         st.rerun()
     else:
         st.warning("Tên lớp đã tồn tại!")
 elif ten_lop and ten_lop != "+ Tạo lớp mới":
     st.session_state["ten_lop_hien_tai"] = ten_lop
-    # RESET các biến tạm theo lớp mới chọn
     cur_lop_data = st.session_state["danh_sach_lop"][ten_lop]
     st.session_state["class_info_tmp"] = cur_lop_data.get("class_info", {}).copy()
     st.session_state["ds_hocvien_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
@@ -241,6 +300,12 @@ elif ten_lop and ten_lop != "+ Tạo lớp mới":
 if not st.session_state["ten_lop_hien_tai"]:
     st.info("🔔 Hãy tạo lớp mới để bắt đầu nhập liệu và quản lý!")
     st.stop()
+
+# ========== Thêm nút về đầu trang (nếu muốn) ==========
+st.markdown("""
+<a href="#" style="position:fixed;bottom:24px;right:24px;z-index:1000;font-size:2rem;" title="Về đầu trang">⬆️</a>
+""", unsafe_allow_html=True)
+
 
 # Lấy dữ liệu lớp hiện tại
 lop_data = st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]
@@ -400,7 +465,8 @@ with tab3:
         def extract_diem_lanthi(text):
             if not isinstance(text, str):
                 return ""
-            scores = re.findall(r"Lần \d+\s*:\s*(\d+)", text)
+            # SỬA regex để lấy cả số thập phân
+            scores = re.findall(r"Lần \d+\s*:\s*(\d+(?:\.\d+)?)", text)
             return "/".join(scores)
         df_diem["DiemDaXuLy"] = df_diem[col_name_lanthi].apply(extract_diem_lanthi)
         diem_map = dict(zip(df_diem["HoTenChuan"], df_diem["DiemDaXuLy"]))
@@ -409,7 +475,7 @@ with tab3:
         for i, row in ds_hocvien.iterrows():
             key = row["HoTenChuan"]
             if key in diem_map and diem_map[key]:
-                ds_hocvien.at[i, "Điểm LT"] = diem_map[key]
+                ds_hocvien.at[i, "Điểm LT"] = round_score_str(diem_map[key])
                 matched += 1
         ds_hocvien = ds_hocvien.drop(columns=["HoTenChuan"])
         if matched > 0:
@@ -427,7 +493,7 @@ with tab3:
             diem_1lan = row[col_name_diem_1lan]
             diem_nlan = row[col_name_diem_nlan]
             if pd.notnull(diem_nlan) and str(diem_nlan).strip() != "":
-                scores = re.findall(r"Lần\s*\d+\s*:\s*(\d+)", str(diem_nlan))
+                scores = re.findall(r"Lần\s*\d+\s*:\s*(\d+(?:\.\d+)?)", str(diem_nlan))
                 return "/".join(scores) if scores else str(diem_nlan).strip()
             elif pd.notnull(diem_1lan) and str(diem_1lan).strip() != "":
                 return str(diem_1lan).strip()
@@ -440,7 +506,7 @@ with tab3:
         for i, row in ds_hocvien.iterrows():
             key = row["HoTenChuan"]
             if key in diem_map and diem_map[key]:
-                ds_hocvien.at[i, "Điểm LT"] = diem_map[key]
+                ds_hocvien.at[i, "Điểm LT"] = round_score_str(diem_map[key])
                 matched += 1
         ds_hocvien = ds_hocvien.drop(columns=["HoTenChuan"])
         if matched > 0:
@@ -481,9 +547,14 @@ with tab4:
     # Lấy danh sách học viên từ đúng lớp đang chọn
     ds_hocvien = st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"].copy()
 
-    gv_huong_dan = st.text_input("Họ tên Giáo viên hướng dẫn", value="Nguyễn Đức Nghĩa")
-    truong_bo_mon = st.text_input("Họ tên Trưởng bộ môn", value="Ngô Trung Thành")
-    truong_tt = st.text_input("Họ tên Trưởng TTĐT", value="Nguyễn Chí Kiên")
+    with st.expander("✍️ Thông tin chữ ký báo cáo", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            gv_huong_dan = st.text_input("Giáo viên hướng dẫn", value="Nguyễn Đức Nghĩa")
+        with col2:
+            truong_bo_mon = st.text_input("Trưởng bộ môn", value="Ngô Trung Thành")
+        with col3:
+            truong_tt = st.text_input("Trưởng TTĐT", value="Nguyễn Chí Kiên")
 
     # Lấy thông tin lớp
     lop_data = st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]
@@ -496,6 +567,10 @@ with tab4:
     num_total = class_info.get("num_total", "")
 
     def extract_days(time_str):
+        # Nếu là datetime, chuyển về string
+        if hasattr(time_str, "strftime"):
+            time_str = time_str.strftime("%d/%m/%Y")
+        time_str = str(time_str)
         if not time_str:
             return []
         time_str = time_str.replace('S', '').replace('s', '')
@@ -514,7 +589,11 @@ with tab4:
         from datetime import datetime
         words = re.findall(r'\w+', str(course_name))
         initials = ''.join([w[0].upper() for w in words])[:10]
-        s = str(time_str)
+        # Nếu là datetime, chuyển về string
+        if hasattr(time_str, "strftime"):
+            s = time_str.strftime("%d/%m/%Y")
+        else:
+            s = str(time_str)
         match = re.match(r'(\d{1,2})[, -](\d{1,2})/(\d{1,2})/(\d{4})', s)
         if match:
             dd1 = match.group(1).zfill(2)
@@ -595,36 +674,53 @@ with tab4:
                         parts = [p.strip() for p in str(s).replace(",", ".").split("/") if p.strip().replace(".", "", 1).isdigit()]
                         return float(parts[-1]) if parts else 0
 
-                    d_lt = get_last_score(diem_lt)
-                    d_th = get_last_score(diem_th)
-                    try:
-                        diem_tb = round((d_lt + 2 * d_th) / 3)
-                    except:
-                        diem_tb = 0
-
                     scores_lt = [s for s in str(diem_lt).split("/") if s.strip().isdigit()]
                     scores_th = [s for s in str(diem_th).split("/") if s.strip().isdigit()]
                     num_tests = max(len(scores_lt), len(scores_th))
-                    # Xếp loại: >1 lần chỉ "Đạt" nếu >=80, không có "Xuất sắc"
-                    if diem_lt == "-" and diem_th == "-":
+
+                    # Kiểm tra có học viên nào đủ cả LT và TH không
+                    all_have_both = any(
+                        len([x for x in str(r.get("Điểm LT", "")).split("/") if x.strip().isdigit()]) > 0 and
+                        len([x for x in str(r.get("Điểm TH", "")).split("/") if x.strip().isdigit()]) > 0
+                        for _, r in ds_hocvien_filtered.iterrows()
+                    )
+
+                    # Nếu các học viên khác có đủ cả LT và TH mà học viên này chỉ có 1 môn
+                    if all_have_both and ((len(scores_lt) == 0 and len(scores_th) > 0) or (len(scores_th) == 0 and len(scores_lt) > 0)):
+                        diem_tb = "-"
                         xep_loai = "-"
-                    elif num_tests > 1:
-                        xep_loai = "Đạt" if diem_tb >= 80 else "Không đạt"
-                    else:
-                        if diem_tb >= 95:
-                            xep_loai = "Xuất sắc"
-                        elif diem_tb >= 80:
-                            xep_loai = "Đạt"
-                        else:
-                            xep_loai = "Không đạt"
-                    # Ghi chú
-                    if diem_lt == "-" and diem_th == "-":
+                        note = "Thiếu môn"
+                    elif diem_lt == "-" and diem_th == "-":
+                        diem_tb = "-"
+                        xep_loai = "-"
                         note = "Vắng"
                     else:
+                        d_lt = get_last_score(diem_lt)
+                        d_th = get_last_score(diem_th)
+                        try:
+                            diem_tb = int((d_lt + 2 * d_th) / 3 + 0.5)
+                        except:
+                            diem_tb = 0
+                        # Xếp loại: 
+                            # Nếu bất kỳ điểm cuối LT hoặc TH < 80 thì luôn Không đạt
+                            # >1 lần chỉ "Đạt" nếu >=80, không có "Xuất sắc"
+                        if d_lt < 80 or d_th < 80:
+                            xep_loai = "Không đạt"
+                        elif num_tests > 1:
+                            xep_loai = "Đạt" if diem_tb >= 80 else "Không đạt"
+                        else:
+                            if diem_tb >= 95:
+                                xep_loai = "Xuất sắc"
+                            elif diem_tb >= 80:
+                                xep_loai = "Đạt"
+                            else:
+                                xep_loai = "Không đạt"
+                        # Ghi chú
                         note = ""
                         main_scores = scores_lt if len(scores_lt) > 1 else scores_th
                         if len(main_scores) > 1:
                             note = f"Kiểm tra lần {'/'.join(str(i+1) for i in range(len(main_scores)))}"
+
                     data.append({
                         "id": ma_nv,
                         "name": ho_ten,
@@ -684,54 +780,128 @@ with tab4:
                     })
 
             # Sắp xếp
-            def calc_group_numtests_score1(student):
-                # Ưu tiên xếp loại trước: Xuất sắc < Đạt < Không đạt < Vắng
-                rank = student.get("rank", "-")
-                if rank == "Xuất sắc":
-                    group = 1
-                elif rank == "Đạt":
-                    group = 2
-                elif rank == "Không đạt":
-                    group = 3
-                else:
-                    group = 4  # Vắng hoặc "-"
-                num_tests = student.get("num_tests", 1)
-                # Điểm cuối cùng để so sánh trong cùng group
-                if "score_tb" in student:
-                    try:
-                        score_1 = float(student.get("score_tb", 0))
-                    except:
-                        score_1 = 0
-                else:
-                    try:
-                        score_1 = float(student.get("score", 0))
-                    except:
-                        score_1 = 0
-                return group, num_tests, score_1
+            if use_5b:
+                def get_group_5b(student, all_have_both):
+                    scores_lt = [x for x in str(student.get("score_lt", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
+                    scores_th = [x for x in str(student.get("score_th", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
+                    n_lt = len(scores_lt)
+                    n_th = len(scores_th)
+                    total = n_lt + n_th
+                    rank = student.get("rank", "-")
 
-            for student in data:
-                group, num_tests, score_1 = calc_group_numtests_score1(student)
-                student["group"] = group
-                student["num_tests"] = num_tests
-                student["score_1"] = score_1
-                # Lấy list điểm từng lần thi (float, từ trái sang phải)
-                if "score_lt" in student:
-                    scores = [float(x) for x in str(student.get("score_lt", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
-                elif "score" in student:
-                    scores = [float(x) for x in str(student.get("score", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
-                else:
-                    scores = []
-                student["last_score"] = scores[-1] if scores else 0
-                student["score_list"] = scores  # <-- thêm dòng này
-            data_sorted = sorted(
-                data,
-                key=lambda row: (
-                    row["group"],                   # Ưu tiên xếp loại
-                    row["num_tests"],               # Số lần thi ít hơn xếp trước
-                    tuple([-x for x in row.get("score_list", [0])[::-1]]),  # So sánh điểm từng lần từ cuối về đầu (giảm dần)
-                    row["name"]
+                    # 1: Xuất sắc
+                    if rank == "Xuất sắc":
+                        return 1
+                    # 2: Đạt (1 LT, 1 TH)
+                    if rank == "Đạt" and n_lt == 1 and n_th == 1:
+                        return 2
+                    # 3: Đạt (tổng số lần thi LT+TH = 3)
+                    if rank == "Đạt" and total == 3:
+                        return 3
+                    # 4: Đạt (2 LT, 2 TH)
+                    if rank == "Đạt" and n_lt == 2 and n_th == 2:
+                        return 4
+                    # 5: Đạt (1 LT/3 TH hoặc 3 LT/1 TH)
+                    if rank == "Đạt" and ((n_lt == 1 and n_th == 3) or (n_lt == 3 and n_th == 1)):
+                        return 5
+                    # 6: Đạt (tổng 5 lần thi)
+                    if rank == "Đạt" and total == 5:
+                        return 6
+                    # 7: Đạt (tổng 6 lần thi)
+                    if rank == "Đạt" and total == 6:
+                        return 7
+                    # 8: Không đạt
+                    if rank == "Không đạt":
+                        return 8
+                    # 9: Thiếu môn
+                    if rank == "-" and ((n_lt == 0 and n_th > 0) or (n_th == 0 and n_lt > 0)) and all_have_both:
+                        student["note"] = "Thiếu môn"
+                        return 9
+                    # 10: Vắng
+                    if (n_lt == 0 and n_th == 0):
+                        student["note"] = "Vắng"
+                        return 10
+                    return 11
+
+                all_have_both = any(
+                    len([x for x in str(s.get("score_lt", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]) > 0 and
+                    len([x for x in str(s.get("score_th", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]) > 0
+                    for s in data
                 )
-            )
+
+                for student in data:
+                    student["group"] = get_group_5b(student, all_have_both)
+                    # Lấy list điểm từng lần thi (float, từ trái sang phải)
+                    scores = []
+                    if "score_lt" in student:
+                        scores += [float(x) for x in str(student.get("score_lt", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
+                    if "score_th" in student:
+                        scores += [float(x) for x in str(student.get("score_th", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
+                    student["score_list"] = scores
+                    student["last_score"] = scores[-1] if scores else 0
+
+                # Sắp xếp theo group, điểm trung bình cao hơn trước, cùng điểm thì so sánh từng lần thi từ cuối về trước, rồi đến tên
+                data_sorted = sorted(
+                    data,
+                    key=lambda row: (
+                        row["group"],
+                        # Nếu là group 9 (Thiếu môn) thì số lần thi ít hơn xếp trước
+                        row["num_tests"] if row["group"] == 9
+                        # Nếu là group 8 (Không đạt) thì số lần thi ít hơn xếp trước
+                        else row["num_tests"] if row["group"] == 8
+                        # Các group khác thì theo điểm trung bình giảm dần
+                        else -(float(row.get("score_tb", 0)) if str(row.get("score_tb", 0)).replace('.', '', 1).isdigit() else -1),
+                        tuple([-x for x in row.get("score_list", [0])[::-1]]),
+                        row["name"]
+                    )
+                )
+            else:
+                def calc_group_numtests_score1(student):
+                    rank = student.get("rank", "-")
+                    if rank == "Xuất sắc":
+                        group = 1
+                    elif rank == "Đạt":
+                        group = 2
+                    elif rank == "Không đạt":
+                        group = 3
+                    else:
+                        group = 4  # Vắng hoặc "-"
+                    num_tests = student.get("num_tests", 1)
+                    if "score_tb" in student:
+                        try:
+                            score_1 = float(student.get("score_tb", 0))
+                        except:
+                            score_1 = 0
+                    else:
+                        try:
+                            score_1 = float(student.get("score", 0))
+                        except:
+                            score_1 = 0
+                    return group, num_tests, score_1
+
+                for student in data:
+                    group, num_tests, score_1 = calc_group_numtests_score1(student)
+                    student["group"] = group
+                    student["num_tests"] = num_tests
+                    student["score_1"] = score_1
+                    if "score_lt" in student:
+                        scores = [float(x) for x in str(student.get("score_lt", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
+                    elif "score" in student:
+                        scores = [float(x) for x in str(student.get("score", "")).replace(",", ".").split("/") if x.strip().replace(".", "", 1).isdigit()]
+                    else:
+                        scores = []
+                    student["last_score"] = scores[-1] if scores else 0
+                    student["score_list"] = scores
+                data_sorted = sorted(
+                    data,
+                    key=lambda row: (
+                        row["group"],
+                        row["num_tests"],
+                        tuple([-x for x in row.get("score_list", [0])[::-1]]),
+                        row["name"]
+                    )
+                )
+            # Chia thành 2 trang nếu cần
             num_total = len(data_sorted)
             max_rows_per_page = 21  # Số hàng tối đa trên mỗi trang
             if num_total > max_rows_per_page:
@@ -759,8 +929,13 @@ with tab4:
             with open(template_file, "r", encoding="utf-8") as f:
                 template_str = f.read()
             template = Template(template_str)
-            min_height = 120 if len(data_sorted) <= 14 else 90
-
+            # Định dạng thời gian
+            if hasattr(time, "strftime"):
+                time = time.strftime("%d/%m/%Y")
+            else:
+                time = str(time)
+            
+            # Render template
             rendered = template.render(
                 students=data_sorted,
                 students_trang1=students_trang1,
@@ -776,7 +951,6 @@ with tab4:
                 truong_bo_mon=truong_bo_mon,
                 truong_tt=truong_tt,
                 logo_base64=logo_base64,
-                min_height=min_height,
                 max_rows_per_page=max_rows_per_page
             )
             # Tìm số lần thi lớn nhất
@@ -843,6 +1017,10 @@ with tab4:
     if diem_danh:
         df = ds_hocvien[(ds_hocvien["Mã NV"].astype(str).str.strip() != "") | (ds_hocvien["Họ tên"].astype(str).str.strip() != "")]
         df = df.reset_index(drop=True)
+        if hasattr(time, "strftime"):
+            time = time.strftime("%d/%m/%Y")
+        else:
+            time = str(time)
         days = extract_days(time)
         students = []
         for i, row in df.iterrows():
@@ -877,7 +1055,6 @@ with tab4:
             gv_huong_dan=gv_huong_dan,
             days=days,
             logo_base64=logo_base64,
-            min_height=120 if len(students) <= 14 else 90,
             max_rows_per_page=23
         )
         attendance_html_with_print = """
@@ -887,4 +1064,17 @@ with tab4:
         """ + attendance_html
         st.components.v1.html(attendance_html_with_print, height=1000, scrolling=True)
 
-
+# ========== Thêm nút về đầu trang ==========
+st.markdown(
+    """
+    <a id="scroll-top-btn" style="position:fixed;bottom:24px;right:24px;z-index:1000;font-size:2rem;cursor:pointer;" title="Về đầu trang">⬆️</a>
+    """,
+    unsafe_allow_html=True
+)
+js_code = """
+document.getElementById("scroll-top-btn").onclick = function(e) {
+    e.preventDefault();
+    window.parent.scrollTo(0, 0);
+}
+"""
+streamlit_js_eval(js_expressions=js_code, key="scroll_top_js")
