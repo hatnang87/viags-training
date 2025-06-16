@@ -479,7 +479,7 @@ with tab1:
 
     # Lưu ngay vào session_state chính
     st.session_state["danh_sach_lop"][ten_lop]["class_info"] = new_info
-
+    st.session_state["class_info_tmp"] = new_info.copy()
     st.info("✅ Đã lưu thông tin lớp học.")
 
 with tab2:
