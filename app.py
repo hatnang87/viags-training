@@ -9,7 +9,6 @@ from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
 import base64
 from jinja2 import Template
-import streamlit.components.v1 as components
 import json
 from datetime import datetime
 
@@ -20,13 +19,46 @@ SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
 st.set_page_config(page_title="📋 Quản lý lớp học - VIAGS", layout="wide")
 st.title("📋 Quản lý lớp học - VIAGS")
 
-# ========== IMPORT JSON & EXPORT JSON ==========
+# ========== SESSION STATE INIT ==========
+for key, default in [
+    ("danh_sach_lop", {}),
+    ("ten_lop_hien_tai", ""),
+    ("hien_nhap_excel", False),
+    ("active_tab", "1️⃣ Thông tin lớp học"),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
 
-if "hide_import_json" not in st.session_state:
-    st.session_state["hide_import_json"] = False
+# ========== Google Drive API ==========
+@st.cache_resource
+def get_drive_service():
+    creds = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"], scopes=SCOPES)
+    return build('drive', 'v3', credentials=creds)
+drive_service = get_drive_service()
 
+def list_excel_files(folder_id):
+    results = drive_service.files().list(
+        q=f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'",
+        fields="files(id, name)"
+    ).execute()
+    return [(f['name'], f['id']) for f in results.get('files', [])]
+
+def download_excel_from_drive(file_id):
+    req = drive_service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    dl = MediaIoBaseDownload(fh, req)
+    done = False
+    while not done:
+        _, done = dl.next_chunk()
+    fh.seek(0)
+    return fh
+
+# ========== IMPORT/EXPORT JSON ==========
 col_import, col_export = st.columns([8, 2])
 with col_import:
+    if "hide_import_json" not in st.session_state:
+        st.session_state["hide_import_json"] = False
     if not st.session_state["hide_import_json"]:
         with st.expander("📂 Import dữ liệu đã lưu (JSON)", expanded=True):
             json_up = st.file_uploader("", type="json", key="import_json", label_visibility="collapsed")
@@ -50,20 +82,17 @@ with col_import:
                     if current not in new_data:
                         keys = list(new_data.keys())
                         st.session_state["ten_lop_hien_tai"] = keys[-1] if keys else ""
-                    msg = st.success("✅ Đã load JSON đầy đủ học viên và điểm.")
-                    msg.empty()
+                    st.success("✅ Đã load JSON đầy đủ học viên và điểm.")
                     st.session_state["hide_import_json"] = True
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Lỗi khi đọc file JSON: {e}")
 
-# ========== EXPORT JSON ==========
 with col_export:
     file_name = f"viags_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     export_dict = {}
     for cls_name, cls_data in st.session_state.get("danh_sach_lop", {}).items():
         df = cls_data["ds_hocvien"].copy()
-        # Đảm bảo đủ 5 cột trước khi xuất
         for c in ["Mã NV", "Họ tên", "Đơn vị", "Điểm LT", "Điểm TH"]:
             if c not in df.columns:
                 df[c] = ""
@@ -80,45 +109,7 @@ with col_export:
         use_container_width=True
     )
 
-# ========== Google Drive API (Service Account) ==========
-@st.cache_resource
-def get_drive_service():
-    creds = service_account.Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"], scopes=SCOPES)
-    return build('drive', 'v3', credentials=creds)
-
-drive_service = get_drive_service()
-
-def list_excel_files(folder_id):
-    results = drive_service.files().list(
-        q=f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'",
-        fields="files(id, name)"
-    ).execute()
-    return [(f['name'], f['id']) for f in results.get('files', [])]
-
-def download_excel_from_drive(file_id):
-    req = drive_service.files().get_media(fileId=file_id)
-    fh = io.BytesIO()
-    dl = MediaIoBaseDownload(fh, req)
-    done = False
-    while not done:
-        _, done = dl.next_chunk()
-    fh.seek(0)
-    return fh
-
-# ========== SESSION STATE INIT ==========
-for key, default in [
-    ("danh_sach_lop", {}),
-    ("ten_lop_hien_tai", ""),
-    ("hien_nhap_excel", False)
-]:
-    if key not in st.session_state:
-        st.session_state[key] = default
-# ==== Chuẩn bị biến tạm cho cơ chế lưu khi chuyển tab ====
-if "active_tab" not in st.session_state:
-    st.session_state["active_tab"] = "1️⃣ Thông tin lớp học"
-
-# ========== HELPER FUNCTIONS ==========
+# ========== Helper functions ==========
 def chuan_hoa_thoi_gian(time_str):
     match = re.match(r"(\d{1,2})-(\d{1,2})/(\d{1,2}/\d{4})", str(time_str))
     if match:
@@ -152,7 +143,6 @@ def strip_accents(s):
     return ''.join(c for c in s if unicodedata.category(c) != 'Mn')
 
 def round_score_str(score_str):
-    # Làm tròn từng điểm trong chuỗi, ví dụ "8/9.5/7.5" -> "8/10/8"
     scores = []
     for s in str(score_str).replace(",", ".").split("/"):
         try:
@@ -165,10 +155,6 @@ def round_score_str(score_str):
             pass
     return "/".join(scores)
 
-
-
-
-
 def nhap_lop_tu_file(file_excel):
     wb = openpyxl.load_workbook(file_excel, data_only=True)
     so_lop_them = 0
@@ -179,13 +165,11 @@ def nhap_lop_tu_file(file_excel):
         if sheet_check == "mucluc":
             log_sheets.append(f"⏩ Bỏ qua sheet '{sheetname}' (Mục lục).")
             continue
-
         ws = wb[sheetname]
         ten_lop_goc = ws["D7"].value
         if not ten_lop_goc or str(ten_lop_goc).strip() == "":
             log_sheets.append(f"❌ Sheet '{sheetname}': Thiếu tên lớp ở D7.")
             continue
-
         thoi_gian = ws["D9"].value or ""
         thoi_gian_chuan = chuan_hoa_thoi_gian(thoi_gian)
         ten_lop = f"{str(ten_lop_goc).strip()}_{str(thoi_gian).strip()}"
@@ -194,14 +178,12 @@ def nhap_lop_tu_file(file_excel):
         while ten_lop in st.session_state["danh_sach_lop"]:
             ten_lop = f"{orig_ten_lop}_{cnt}"
             cnt += 1
-
         loai_hinh_full = ws["B8"].value or ""
         if ":" in str(loai_hinh_full):
             loai_hinh = str(loai_hinh_full).split(":", 1)[-1].strip()
         else:
             loai_hinh = str(loai_hinh_full).strip()
         dia_diem = ws["D10"].value or ""
-
         data = []
         row = 14
         while True:
@@ -221,10 +203,10 @@ def nhap_lop_tu_file(file_excel):
                     "Mã NV": str(ma_nv or "").strip(),
                     "Họ tên": str(ho_ten or "").strip(),
                     "Đơn vị": str(don_vi or "").strip(),
-                    "Điểm": ""
+                    "Điểm LT": "",
+                    "Điểm TH": ""
                 })
             row += 1
-
         if len(data) > 0:
             df = pd.DataFrame(data)
             st.session_state["danh_sach_lop"][ten_lop] = {
@@ -243,13 +225,8 @@ def nhap_lop_tu_file(file_excel):
             log_sheets.append(f"✅ Sheet '{sheetname}' ({ten_lop_goc}) đã nhập {len(data)} học viên (tên lớp: {ten_lop})")
         else:
             log_sheets.append(f"❌ Sheet '{sheetname}': Không có học viên ở C14-E14 trở đi.")
-
     if so_lop_them:
         st.session_state["ten_lop_hien_tai"] = lop_moi_vua_them
-        cur_lop_data = st.session_state["danh_sach_lop"][lop_moi_vua_them]
-        st.session_state["class_info_tmp"] = cur_lop_data.get("class_info", {}).copy()
-        st.session_state["ds_hocvien_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
-        st.session_state["diem_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
         st.success(f"Đã nhập xong {so_lop_them} lớp! Vào phần 'Chọn lớp' để kiểm tra.")
         for log in log_sheets:
             st.write(log)
@@ -262,7 +239,6 @@ def nhap_lop_tu_file(file_excel):
 
 def nhap_nhieu_lop_excel_modal():
     tab_drive, tab_file = st.tabs(["Từ Google Drive", "Từ máy tính"])
-    # --- Tab 1: Google Drive ---
     with tab_drive:
         folder_id = FOLDER_ID_DEFAULT
         excel_files = list_excel_files(folder_id)
@@ -272,13 +248,11 @@ def nhap_nhieu_lop_excel_modal():
             if st.button("Tải và nhập từ Drive", key="btn_drive_import_tabdrive" + str(st.session_state.get("drive_tab_version", 0))):
                 excel_bytes = download_excel_from_drive(file_map[selected_file])
                 nhap_lop_tu_file(excel_bytes)
-                # Reset key lần tiếp theo (chống đúp)
                 st.session_state["drive_tab_version"] = st.session_state.get("drive_tab_version", 0) + 1
                 st.session_state["hien_nhap_excel"] = False
                 st.rerun()
         else:
             st.info("Không có file Excel nào trong folder Drive này.")
-    # --- Tab 2: Máy tính ---
     with tab_file:
         file_excel = st.file_uploader(
             "Chọn file Excel danh sách lớp",
@@ -292,7 +266,6 @@ def nhap_nhieu_lop_excel_modal():
             huy_excel = st.button("❌ Đóng nhập nhiều lớp", key="btn_huy_excel_tabfile" + str(st.session_state.get("file_tabfile_version", 0)))
         if huy_excel:
             st.session_state["hien_nhap_excel"] = False
-            # Reset key lần tiếp theo (chống đúp)
             st.session_state["file_tabfile_version"] = st.session_state.get("file_tabfile_version", 0) + 1
             st.rerun()
         if file_excel is not None and nhap_excel:
@@ -300,8 +273,8 @@ def nhap_nhieu_lop_excel_modal():
             st.session_state["file_tabfile_version"] = st.session_state.get("file_tabfile_version", 0) + 1
             st.session_state["hien_nhap_excel"] = False
             st.rerun()
-   
-# ========== UI: Expander nhập nhiều lớp ==========
+
+# ========== UI: Nhập nhiều lớp ==========
 with st.expander("📥 Nhập nhiều lớp từ file Excel (mỗi sheet 1 lớp)", expanded=False):
     nhap_nhieu_lop_excel_modal()
 
@@ -325,54 +298,9 @@ with chuc_nang[3]:
             st.session_state["ten_lop_hien_tai"] = ds_lop[0] if ds_lop else ""
         st.success("Lớp đã được xóa thành công!")
 
-if "ds_hocvien_tmp" not in st.session_state:
-    if st.session_state["ten_lop_hien_tai"] and st.session_state["ten_lop_hien_tai"] in st.session_state["danh_sach_lop"]:
-        st.session_state["ds_hocvien_tmp"] = st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"].copy()
-    else:
-        st.session_state["ds_hocvien_tmp"] = pd.DataFrame({
-            "Mã NV": [""] * 30,
-            "Họ tên": [""] * 30,
-            "Đơn vị": [""] * 30,
-            "Điểm": [""] * 30
-        })
-
-if "diem_tmp" not in st.session_state:
-    if st.session_state["ten_lop_hien_tai"] and st.session_state["ten_lop_hien_tai"] in st.session_state["danh_sach_lop"]:
-        st.session_state["diem_tmp"] = st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"].copy()
-    else:
-        st.session_state["diem_tmp"] = pd.DataFrame({
-            "Mã NV": [""] * 30,
-            "Họ tên": [""] * 30,
-            "Đơn vị": [""] * 30,
-            "Điểm": [""] * 30
-        })
-
-def save_data_when_switch_tab(new_tab):
-    
-    # Tab 1: Lưu thông tin lớp học khi chuyển tab
-    if st.session_state["active_tab"] == "1️⃣ Thông tin lớp học" and new_tab != "1️⃣ Thông tin lớp học":
-        st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["class_info"] = st.session_state["class_info_tmp"].copy()
-    # Tab 2: Lưu danh sách học viên (không điểm)
-    if st.session_state["active_tab"] == "2️⃣ Danh sách học viên" and new_tab != "2️⃣ Danh sách học viên":
-        ds = st.session_state["ds_hocvien_tmp"].copy()
-        # Nếu đang có cột điểm thì reset, nếu không thì thôi (hoặc giữ lại, tùy bố muốn)
-        for col in ["Điểm LT", "Điểm TH"]:
-            if col in ds.columns:
-                ds = ds.drop(columns=[col])
-        # Reset lại điểm khi danh sách thay đổi
-        ds["Điểm LT"] = ""
-        ds["Điểm TH"] = ""
-        st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"] = ds.copy()
-    # Tab 3: Lưu điểm
-    if st.session_state["active_tab"] == "3️⃣ Cập nhật điểm" and new_tab != "3️⃣ Cập nhật điểm":
-        st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"] = st.session_state["diem_tmp"].copy()
-    st.session_state["active_tab"] = new_tab
-
 # Xử lý tạo lớp mới hoặc đổi lớp
 if tao_lop and ten_moi.strip():
     if ten_moi not in st.session_state["danh_sach_lop"]:
-        # Lưu dữ liệu lớp hiện tại trước khi chuyển sang lớp mới
-        save_data_when_switch_tab(st.session_state["active_tab"])
         st.session_state["danh_sach_lop"][ten_moi] = {
             "class_info": {
                 "course_name": "",
@@ -386,48 +314,30 @@ if tao_lop and ten_moi.strip():
                 "Mã NV": [""] * 30,
                 "Họ tên": [""] * 30,
                 "Đơn vị": [""] * 30,
-                "Điểm": [""] * 30
+                "Điểm LT": [""] * 30,
+                "Điểm TH": [""] * 30
             }),
         }
         st.session_state["ten_lop_hien_tai"] = ten_moi
-        cur_lop_data = st.session_state["danh_sach_lop"][ten_moi]
-        st.session_state["class_info_tmp"] = cur_lop_data.get("class_info", {}).copy()
-        st.session_state["ds_hocvien_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
-        st.session_state["diem_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
         st.rerun()
     else:
         st.warning("Tên lớp đã tồn tại!")
 elif ten_lop and ten_lop != "+ Tạo lớp mới":
-    # Lưu dữ liệu lớp hiện tại trước khi chuyển sang lớp khác
-    # Nếu đang ở tab 3 thì lưu điểm thủ công vào lớp cũ
-    if st.session_state["active_tab"] == "3️⃣ Cập nhật điểm":
-        st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]["ds_hocvien"] = st.session_state["diem_tmp"].copy()
-    save_data_when_switch_tab(st.session_state["active_tab"])
     st.session_state["ten_lop_hien_tai"] = ten_lop
-    cur_lop_data = st.session_state["danh_sach_lop"][ten_lop]
-    st.session_state["class_info_tmp"] = cur_lop_data.get("class_info", {}).copy()
-    st.session_state["ds_hocvien_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
-    st.session_state["diem_tmp"] = cur_lop_data.get("ds_hocvien", pd.DataFrame()).copy()
-# Nếu chưa có lớp nào, yêu cầu tạo trước
 if not st.session_state["ten_lop_hien_tai"]:
     st.info("🔔 Hãy tạo lớp mới để bắt đầu nhập liệu và quản lý!")
     st.stop()
 
-# Lấy dữ liệu lớp hiện tại
 lop_data = st.session_state["danh_sach_lop"][st.session_state["ten_lop_hien_tai"]]
 class_info = lop_data.get("class_info", {})
 ds_hocvien = lop_data.get("ds_hocvien", pd.DataFrame({
     "Mã NV": [""] * 30,
     "Họ tên": [""] * 30,
     "Đơn vị": [""] * 30,
-    "Điểm": [""] * 30
+    "Điểm LT": [""] * 30,
+    "Điểm TH": [""] * 30
 }))
 
-
-
-
-  
-    
 # ========== UI TABS ==========
 tab1, tab2, tab3, tab4 = st.tabs([
     "1️⃣ Thông tin lớp học", 
@@ -435,15 +345,10 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "3️⃣ Cập nhật điểm",
     "4️⃣ Chữ ký & xuất báo cáo"
 ])
-# ========== Tab nội dung ==========
 
-    
 with tab1:
-    save_data_when_switch_tab("1️⃣ Thông tin lớp học")
     st.subheader("📝 Nhập thông tin lớp học")
     ten_lop = st.session_state["ten_lop_hien_tai"]
-
-    # Lấy dữ liệu cũ (nếu có), hoặc dùng mẫu
     cur_info = st.session_state["danh_sach_lop"][ten_lop].get("class_info", {})
     sample = [
         "An toàn hàng không",
@@ -459,15 +364,11 @@ with tab1:
         cur_info.get("location", ""),
         cur_info.get("class_code", "")
     ]) if any(cur_info.values()) else "\n".join(sample)
-
-    # Text area nhập 5 dòng
     txt = st.text_area(
         "Dán 5 dòng: Môn học, Loại hình, Thời gian, Địa điểm, Mã lớp (ghi chú)",
         value=default_value,
         height=130
     )
-
-    # Parse từng dòng
     lines = txt.split("\n")
     new_info = {
         "course_name": lines[0].strip() if len(lines) > 0 else "",
@@ -476,27 +377,17 @@ with tab1:
         "location": lines[3].strip() if len(lines) > 3 else "",
         "class_code": lines[4].strip() if len(lines) > 4 else "",
     }
-
-    # Lưu ngay vào session_state chính
     st.session_state["danh_sach_lop"][ten_lop]["class_info"] = new_info
-    st.session_state["class_info_tmp"] = new_info.copy()
     st.info("✅ Đã lưu thông tin lớp học.")
 
 with tab2:
-    save_data_when_switch_tab("2️⃣ Danh sách học viên")
     st.subheader("📋 Danh sách học viên")
     ten_lop = st.session_state["ten_lop_hien_tai"]
-    # Lấy toàn bộ DataFrame, giữ cả cột điểm nếu có
     df_all = st.session_state["danh_sach_lop"][ten_lop]["ds_hocvien"].copy()
-
-    # Đảm bảo đủ 3 cột cơ bản
     for col in ["Mã NV", "Họ tên", "Đơn vị"]:
         if col not in df_all.columns:
             df_all[col] = ""
-
-    # Chỉ hiển thị 3 cột để edit, nhưng không xóa các cột khác
     df_info = df_all[["Mã NV", "Họ tên", "Đơn vị"]]
-
     edited_info = st.data_editor(
         df_info,
         key=f"editor_ds_{ten_lop}",
@@ -509,26 +400,19 @@ with tab2:
             "Đơn vị": st.column_config.TextColumn(width="medium"),
         }
     )
-
-    # Cập nhật trở lại DataFrame chính, giữ nguyên các cột khác (ví dụ Điểm LT, Điểm TH)
+    # Cập nhật trở lại DataFrame chính, giữ nguyên các cột khác
     df_all.loc[:, ["Mã NV", "Họ tên", "Đơn vị"]] = edited_info
-
-    # Lưu vào session_state
     st.session_state["danh_sach_lop"][ten_lop]["ds_hocvien"] = df_all
 
-
 with tab3:
-    save_data_when_switch_tab("3️⃣ Cập nhật điểm")
     st.subheader("📊 Nhập điểm LT / TH")
     ten_lop = st.session_state["ten_lop_hien_tai"]
     df = st.session_state["danh_sach_lop"][ten_lop]["ds_hocvien"].copy()
-
     # Đảm bảo đủ 5 cột
     for c in ["Mã NV", "Họ tên", "Đơn vị", "Điểm LT", "Điểm TH"]:
         if c not in df.columns:
             df[c] = ""
     df = df[["Mã NV", "Họ tên", "Đơn vị", "Điểm LT", "Điểm TH"]]
-
     # ----- Nhập điểm tự động từ file LMS -----
     col_lms, col_dotthi = st.columns(2)
     with col_lms:
@@ -548,8 +432,6 @@ with tab3:
             lst = re.findall(r"Lần \d+\s*:\s*(\d+(?:\.\d+)?)", txt)
             return "/".join(lst)
         df_diem["DiemDaXuLy"] = df_diem[col_name_lanthi].apply(extract_lms)
-
-        # Merge vào toàn bộ danh sách
         map_lms = dict(zip(df_diem["HoTenChuan"], df_diem["DiemDaXuLy"]))
         df["HoTenChuan"] = df["Họ tên"].apply(normalize_name)
         count = 0
@@ -560,7 +442,6 @@ with tab3:
                 count += 1
         df = df.drop(columns=["HoTenChuan"])
         st.success(f"✅ Đã ghép điểm LT từ LMS cho {count} học viên.")
-
     # --- b) Đợt thi ---
     if uploaded_dotthi:
         df_dot = pd.read_excel(uploaded_dotthi)
@@ -576,7 +457,6 @@ with tab3:
                 return str(row[c_d1]).strip()
             return ""
         df_dot["DiemDaXuLy"] = df_dot.apply(extract_dotthi, axis=1)
-
         map_dot = dict(zip(df_dot["HoTenChuan"], df_dot["DiemDaXuLy"]))
         df["HoTenChuan"] = df["Họ tên"].apply(normalize_name)
         cnt2 = 0
@@ -587,7 +467,6 @@ with tab3:
                 cnt2 += 1
         df = df.drop(columns=["HoTenChuan"])
         st.success(f"✅ Đã ghép điểm LT từ Đợt thi cho {cnt2} học viên.")
-
     # ----- Chỉnh sửa thủ công toàn bộ học viên -----
     st.markdown("**✏️ Chỉnh sửa thủ công**")
     edited = st.data_editor(
@@ -597,13 +476,9 @@ with tab3:
         use_container_width=True,
         disabled=["Mã NV", "Họ tên", "Đơn vị"]
     )
-    # Lưu lại điểm toàn bộ học viên
-    #st.session_state["danh_sach_lop"][ten_lop]["ds_hocvien"] = edited
-    st.session_state["diem_tmp"] = edited.copy()
     st.session_state["danh_sach_lop"][ten_lop]["ds_hocvien"] = edited.copy()
-
 with tab4:
-    save_data_when_switch_tab("4️⃣ Chữ ký & xuất báo cáo")
+    #save_data_when_switch_tab("4️⃣ Chữ ký & xuất báo cáo")
     st.subheader("Thông tin chữ ký báo cáo & Xuất báo cáo")
 
     # Lấy danh sách học viên từ đúng lớp đang chọn
