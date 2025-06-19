@@ -37,12 +37,28 @@ def get_drive_service():
     return build('drive', 'v3', credentials=creds)
 drive_service = get_drive_service()
 
-def list_excel_files(folder_id):
+def list_excel_files_recursive(folder_id, parent_path=""):
+    query = f"'{folder_id}' in parents and trashed=false"
     results = drive_service.files().list(
-        q=f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'",
-        fields="files(id, name)"
+        q=query,
+        fields="files(id, name, mimeType)"
     ).execute()
-    return [(f['name'], f['id']) for f in results.get('files', [])]
+    files = results.get('files', [])
+    excel_files = []
+    for f in files:
+        # Nếu là thư mục, duyệt tiếp
+        if f['mimeType'] == 'application/vnd.google-apps.folder':
+            subfolder_files = list_excel_files_recursive(
+                f['id'],
+                parent_path + f"{f['name']}/"
+            )
+            excel_files.extend(subfolder_files)
+        # Nếu là file excel
+        elif f['mimeType'] == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+            excel_files.append(
+                (parent_path + f['name'], f['id'])
+            )
+    return excel_files
 
 def download_excel_from_drive(file_id):
     req = drive_service.files().get_media(fileId=file_id)
@@ -241,10 +257,14 @@ def nhap_nhieu_lop_excel_modal():
     tab_drive, tab_file = st.tabs(["Từ Google Drive", "Từ máy tính"])
     with tab_drive:
         folder_id = FOLDER_ID_DEFAULT
-        excel_files = list_excel_files(folder_id)
+        # Sử dụng hàm đệ quy mới
+        excel_files = list_excel_files_recursive(folder_id)
         file_map = {f[0]: f[1] for f in excel_files}
         if excel_files:
-            selected_file = st.selectbox("Chọn file Excel danh sách lớp", list(file_map.keys()), key="select_drive_tab")
+            selected_file = st.selectbox(
+                "Chọn file Excel danh sách lớp (bao gồm file trong thư mục con)",
+                list(file_map.keys()), key="select_drive_tab"
+            )
             if st.button("Tải và nhập từ Drive", key="btn_drive_import_tabdrive" + str(st.session_state.get("drive_tab_version", 0))):
                 excel_bytes = download_excel_from_drive(file_map[selected_file])
                 nhap_lop_tu_file(excel_bytes)
